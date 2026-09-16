@@ -1,0 +1,14 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno con secretos: NUNCA subir al repo
+.env
+.env.local
+
+# Wrangler / D1 local
+.wrangler/
+
+
+# Documentacion de contexto (local, no compartir)
+arranque-en-frio-render.md
+BACKEND_HANDOFF.md
