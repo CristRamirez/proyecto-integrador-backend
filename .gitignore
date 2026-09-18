@@ -7,6 +7,7 @@ node_modules/
 
 # Wrangler / D1 local
 .wrangler/
+.dev.vars
 
 
 # Documentacion de contexto (local, no compartir)

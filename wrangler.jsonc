@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "proyecto-integrador-backend",
+  "main": "src/worker.mjs",
+
+  // nodejs_compat habilita Express y, desde 2025-04-01, popula process.env
+  // con las vars y los secrets del Worker (los lee src/config/env.js).
+  "compatibility_date": "2026-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    "enabled": true
+  },
+
+  // La base entra como binding: el Worker la consulta directo, sin token.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "proyecto-integrador-aca",
+      "database_id": "6945c36e-cd61-4a86-8cd7-fa226645fae2"
+    }
+  ],
+
+  // Valores publicos. El secreto (JWT_SECRET) va por `wrangler secret put`
+  // o por el panel, nunca aca.
+  "vars": {
+    "NODE_ENV": "production",
+    "JWT_EXPIRES_IN": "2h"
+  }
+}

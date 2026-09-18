@@ -31,11 +31,43 @@ que se accede por su API HTTP.
 
    Queda escuchando en `http://localhost:3000`.
 
+## Deploy en Cloudflare Workers
+
+La misma app de Express corre en Workers gracias al flag `nodejs_compat`:
+`src/worker.mjs` la engancha al runtime con `httpServerHandler` y el resto de la
+configuración está en `wrangler.jsonc`.
+
+Ahí la base **no** se consulta por la API HTTP: entra como *binding* (`env.DB`),
+así que el Worker no necesita ningún token de D1. Corriendo con node no hay
+binding y se sigue usando la API HTTP con las variables del `.env`.
+
+1. Cargar el único secreto (una sola vez por Worker):
+
+   ```
+   npx wrangler secret put JWT_SECRET
+   ```
+
+   Con `nodejs_compat` las vars y los secrets del Worker llegan a `process.env`,
+   así que `src/config/env.js` los lee igual que en local.
+
+2. Publicar:
+
+   ```
+   npm run deploy
+   ```
+
+Si el deploy se hace desde el panel conectando el repo, los campos son: **build
+command** vacío (el proyecto no se compila) y **deploy command** `npx wrangler deploy`.
+
+Para probarlo local antes de publicar: `npm run dev:worker`, que lee los secretos
+de un archivo `.dev.vars` (mismo formato que `.env`, tampoco se sube al repo).
+
 ## Estructura de carpetas
 
 ```
 src/
-├── server.js            arranca el servidor
+├── server.js            arranca el servidor en Node (local)
+├── worker.mjs           punto de entrada en Cloudflare Workers
 ├── app.js               arma la app de Express (middlewares + rutas)
 ├── config/env.js        lee y valida las variables de entorno
 ├── db/d1.js             cliente de la base D1 (consultas por HTTP)

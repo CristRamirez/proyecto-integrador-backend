@@ -1,18 +1,19 @@
-require('dotenv').config();
+// En Workers las variables ya llegan del runtime; dotenv solo hace falta con node.
+const enWorkers = globalThis.navigator && globalThis.navigator.userAgent === 'Cloudflare-Workers';
+if (!enWorkers) {
+  require('dotenv').config();
+}
 
-const REQUERIDAS = ['CF_ACCOUNT_ID', 'CF_D1_DATABASE_ID', 'CF_D1_API_TOKEN', 'JWT_SECRET'];
-
-const faltantes = REQUERIDAS.filter((nombre) => !process.env[nombre]);
-if (faltantes.length > 0) {
-  console.error(`Faltan variables de entorno: ${faltantes.join(', ')}`);
-  console.error('Copiá .env.example a .env y completá los valores.');
-  process.exit(1);
+if (!process.env.JWT_SECRET) {
+  throw new Error('Falta la variable de entorno JWT_SECRET');
 }
 
 module.exports = {
   puerto: Number(process.env.PORT) || 3000,
   entorno: process.env.NODE_ENV || 'development',
 
+  // Credenciales de la API HTTP de D1: solo se usan corriendo con node,
+  // porque en Workers la base entra por el binding (ver src/db/d1.js).
   d1: {
     accountId: process.env.CF_ACCOUNT_ID,
     databaseId: process.env.CF_D1_DATABASE_ID,
