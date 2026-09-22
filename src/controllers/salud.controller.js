@@ -1,4 +1,6 @@
-const { consultarUno } = require('../db/d1');
+const { count } = require('drizzle-orm');
+const { db } = require('../db/d1');
+const { roles } = require('../db/schema');
 const { version } = require('../../package.json');
 
 async function estado(req, res) {
@@ -10,7 +12,7 @@ async function estado(req, res) {
   };
 
   if (req.query.db === '1') {
-    const fila = await consultarUno('SELECT COUNT(*) AS cantidad FROM roles');
+    const [fila] = await db().select({ cantidad: count() }).from(roles);
     respuesta.baseDeDatos = { conectada: true, roles: fila ? fila.cantidad : 0 };
   }
 
