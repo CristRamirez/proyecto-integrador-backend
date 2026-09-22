@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   password_hash   TEXT    NOT NULL,                 -- hash bcrypt, nunca texto plano
   rol_id          INTEGER NOT NULL,
   activo          INTEGER NOT NULL DEFAULT 1,       -- 1 = habilitado, 0 = deshabilitado
+  intentos_fallidos INTEGER NOT NULL DEFAULT 0,     -- logins fallidos seguidos (BS-1)
+  bloqueado_hasta TEXT,                             -- con fecha futura, no puede iniciar sesión
   creado_en       TEXT    NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (rol_id) REFERENCES roles(id)
 );
@@ -134,7 +136,10 @@ CREATE INDEX IF NOT EXISTS idx_historial_interno ON historial_estados(interno_id
 
 INSERT OR IGNORE INTO roles (nombre) VALUES
   ('administrador'),
-  ('empleado');
+  ('empleado'),
+  ('operador'),
+  ('contador'),
+  ('solo lectura');
 
 INSERT OR IGNORE INTO estados (nombre) VALUES
   ('activo'),
