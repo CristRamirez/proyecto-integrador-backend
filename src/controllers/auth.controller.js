@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const ApiError = require('../utils/ApiError');
 const { firmarToken } = require('../utils/token');
 const usuarios = require('../services/usuarios.service');
+const roles = require('../services/roles.service');
 
 // POST /api/auth/login
 // Login de prueba: alcanza para probar el middleware de token y para que la app
@@ -39,6 +40,7 @@ async function login(req, res) {
       nombreUsuario: usuario.nombre_usuario,
       nombreCompleto: usuario.nombre_completo,
       rol: usuario.rol,
+      modulos: await roles.nombresDeModulosDelRol(usuario.rol),
     },
   });
 }
@@ -46,8 +48,10 @@ async function login(req, res) {
 // GET /api/auth/yo
 // Devuelve de quién es el token que se mandó. Le sirve a la app de escritorio para
 // saber si la sesión sigue viva y qué opciones del menú mostrar.
-function yo(req, res) {
-  res.json({ ok: true, usuario: req.usuario });
+async function yo(req, res) {
+  const modulos = await roles.nombresDeModulosDelRol(req.usuario.rol);
+
+  res.json({ ok: true, usuario: { ...req.usuario, modulos } });
 }
 
 module.exports = { login, yo };
