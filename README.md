@@ -92,6 +92,16 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/ejemplo/protegido`  | con token             | Ruta de ejemplo que exige token                 |
 | GET    | `/api/ejemplo/solo-admin` | rol `administrador`   | Ruta de ejemplo con control por rol             |
 | GET    | `/api/ejemplo/error`      | público               | Falla a propósito, para ver el manejo de errores|
+| GET    | `/api/modulos`            | rol `administrador`   | Módulos del sistema                             |
+| POST   | `/api/modulos`            | rol `administrador`   | Alta de módulo                                  |
+| PUT    | `/api/modulos/:id`        | rol `administrador`   | Renombra un módulo                              |
+| DELETE | `/api/modulos/:id`        | rol `administrador`   | Borra un módulo que no esté asignado a un rol   |
+| GET    | `/api/roles`              | rol `administrador`   | Roles con su cantidad de módulos                |
+| GET    | `/api/roles/:id/modulos`  | rol `administrador`   | Módulos a los que accede ese rol                |
+| PUT    | `/api/roles/:id/modulos`  | rol `administrador`   | Reemplaza los módulos del rol: `{"modulos":[1,3]}`|
+| GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
+| GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
+| POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -125,6 +135,49 @@ Authorization: Bearer eyJhbGciOi...
 > tenga contra qué autenticarse. Las reglas completas (bloqueo a los 5 intentos
 > fallidos, los cuatro roles del enunciado) son de la tarjeta **BS-1**.
 
+### Alta de interno (BS-2)
+
+```
+POST /api/internos
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "dni": "30111222",
+  "apellido": "Perez",
+  "nombre": "Juan",
+  "fecha_nacimiento": "1990-05-12",
+  "judicializado": 1,
+  "datos_salud": "hipertenso",
+  "obra_social_id": 3,
+  "fecha_ingreso": "2026-09-22",
+  "contactos": [
+    { "nombre": "Maria Perez", "parentesco": "madre", "telefono": "1155556666" },
+    { "nombre": "Luis Perez", "parentesco": "hermano", "email": "luis@mail.com" }
+  ]
+}
+```
+
+Obligatorios: `dni`, `apellido`, `nombre` y al menos dos contactos, cada uno con nombre y
+teléfono o email. `fecha_ingreso` es opcional: si no viene se usa la fecha del día, y una vez
+guardada no se modifica. El número de legajo lo genera la API con el formato
+`LEG-AAAAMMDD-NNNN` y tampoco se toma del cuerpo del pedido.
+
+Responde 201 con el interno recién creado, su legajo y sus contactos. El alta deja registrado
+quién la hizo (`creado_por`) y una primera fila en el historial de estados.
+
+Errores propios del alta:
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el DNI, el apellido o el nombre |
+| 400 `DNI_INVALIDO` | el DNI no es un número de 7 u 8 dígitos |
+| 400 `CONTACTOS_INSUFICIENTES` | vienen menos de dos contactos |
+| 400 `CONTACTO_INVALIDO` | un contacto no tiene nombre, o no tiene teléfono ni email |
+| 400 `FECHA_INVALIDA` | una fecha no tiene formato AAAA-MM-DD, o el ingreso es futuro |
+| 400 `OBRA_SOCIAL_INEXISTENTE` | la obra social indicada no está en el catálogo |
+| 409 `DNI_DUPLICADO` | ya hay un **interno activo** con ese DNI |
+
 ## Formato de las respuestas de error
 
 Todos los errores salen por el mismo lugar y con la misma forma:
@@ -137,7 +190,7 @@ Todos los errores salen por el mismo lugar y con la misma forma:
 |-------------|-----------------------------------------------------|
 | 400         | Faltan datos o el JSON del cuerpo está mal armado   |
 | 401         | No hay token, el token es inválido o venció; login incorrecto |
-| 403         | El rol del usuario no tiene permiso para esa ruta   |
+| 403         | El rol del usuario no tiene permiso, o no accede a ese módulo |
 | 404         | La ruta no existe                                   |
 | 500         | Error no previsto (bug): el detalle queda en el log |
 | 502 / 503   | Falló la consulta a D1 o no se pudo conectar        |
@@ -146,9 +199,10 @@ Todos los errores salen por el mismo lugar y con la misma forma:
 
 ```js
 const { requiereAutenticacion } = require('../middlewares/autenticacion');
-const { requiereRol } = require('../middlewares/autorizacion');
+const { requiereRol, requiereModulo } = require('../middlewares/autorizacion');
 
 router.get('/solo-logueados', requiereAutenticacion, controlador);
 router.post('/altas', requiereAutenticacion, requiereRol('administrador'), controlador);
 router.get('/cuotas', requiereAutenticacion, requiereRol('administrador', 'contador'), controlador);
+router.get('/internos', requiereAutenticacion, requiereModulo('internos'), controlador);
 ```
