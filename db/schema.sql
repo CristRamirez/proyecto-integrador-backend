@@ -29,6 +29,21 @@ CREATE TABLE IF NOT EXISTS usuarios (
 
 CREATE INDEX IF NOT EXISTS idx_usuarios_rol ON usuarios(rol_id);
 
+-- Módulos del sistema (internos, cobranzas, etc.).
+CREATE TABLE IF NOT EXISTS modulos (
+  id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT    NOT NULL UNIQUE
+);
+
+-- Permisos: qué roles acceden a qué módulos (relación N:N).
+CREATE TABLE IF NOT EXISTS rol_modulo (
+  rol_id    INTEGER NOT NULL,
+  modulo_id INTEGER NOT NULL,
+  PRIMARY KEY (rol_id, modulo_id),           -- clave compuesta: un rol-módulo no se repite
+  FOREIGN KEY (rol_id)    REFERENCES roles(id),
+  FOREIGN KEY (modulo_id) REFERENCES modulos(id)
+);
+
 -- ------------------------------------------------------------
 -- CATÁLOGOS (Internos)
 -- ------------------------------------------------------------
@@ -74,14 +89,16 @@ CREATE TABLE IF NOT EXISTS internos (
 CREATE INDEX IF NOT EXISTS idx_internos_dni    ON internos(dni);
 CREATE INDEX IF NOT EXISTS idx_internos_estado ON internos(estado_id);
 
--- Legajo del interno. Uno por interno (relación 1:1).
+-- Legajos del interno. Un interno puede tener varios legajos (relación 1:N).
 CREATE TABLE IF NOT EXISTS legajos (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  interno_id     INTEGER NOT NULL UNIQUE,           -- 1:1 con internos
+  interno_id     INTEGER NOT NULL,                  -- 1:N con internos (sin UNIQUE)
   numero         TEXT    NOT NULL UNIQUE,           -- formato LEG-AAAAMMDD-NNNN, inmutable
   fecha_apertura TEXT    NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (interno_id) REFERENCES internos(id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_legajos_interno ON legajos(interno_id);
 
 -- Contactos familiares del interno (mínimo 2 por interno: regla de negocio).
 CREATE TABLE IF NOT EXISTS contactos_familiares (
@@ -122,3 +139,17 @@ INSERT OR IGNORE INTO roles (nombre) VALUES
 INSERT OR IGNORE INTO estados (nombre) VALUES
   ('activo'),
   ('egresado');
+
+INSERT OR IGNORE INTO modulos (nombre) VALUES
+  ('internos'),
+  ('cobranzas'),
+  ('reportes'),
+  ('usuarios'),
+  ('auditoria'),
+  ('parametros');
+
+-- El rol administrador accede a todos los módulos.
+INSERT OR IGNORE INTO rol_modulo (rol_id, modulo_id)
+SELECT r.id, m.id
+FROM roles r, modulos m
+WHERE r.nombre = 'administrador';
