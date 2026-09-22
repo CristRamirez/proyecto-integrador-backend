@@ -27,6 +27,8 @@ const usuarios = sqliteTable('usuarios', {
   password_hash: text('password_hash').notNull(),
   rol_id: integer('rol_id').notNull(),
   activo: integer('activo').notNull().default(1),
+  intentos_fallidos: integer('intentos_fallidos').notNull().default(0),
+  bloqueado_hasta: text('bloqueado_hasta'),
   creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
 });
 

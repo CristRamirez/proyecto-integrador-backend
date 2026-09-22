@@ -131,9 +131,15 @@ El token se manda en el resto de los pedidos en el encabezado:
 Authorization: Bearer eyJhbGciOi...
 ```
 
-> El login de acá es el mínimo para poder probar la API y que la app de escritorio
-> tenga contra qué autenticarse. Las reglas completas (bloqueo a los 5 intentos
-> fallidos, los cuatro roles del enunciado) son de la tarjeta **BS-1**.
+**Bloqueo por intentos fallidos (BS-1).** A los 5 intentos fallidos seguidos el usuario
+queda bloqueado 5 minutos: mientras dura, el login responde 423 `USUARIO_BLOQUEADO` aunque
+la contraseña sea la correcta. El contador se guarda en `usuarios.intentos_fallidos` y la
+fecha de desbloqueo en `usuarios.bloqueado_hasta`. Un login correcto lo vuelve a cero, y
+cuando el bloqueo se vence el conteo arranca de nuevo.
+
+Roles en la base: `administrador`, `empleado`, `operador`, `contador` y `solo lectura`.
+A qué módulos accede cada uno se define desde el ABM (`PUT /api/roles/:id/modulos`): los
+roles nuevos arrancan sin módulos, así que su menú viene vacío hasta que se los asignen.
 
 ### Alta de interno (BS-2)
 
@@ -192,6 +198,7 @@ Todos los errores salen por el mismo lugar y con la misma forma:
 | 401         | No hay token, el token es inválido o venció; login incorrecto |
 | 403         | El rol del usuario no tiene permiso, o no accede a ese módulo |
 | 404         | La ruta no existe                                   |
+| 423         | El usuario está bloqueado por intentos fallidos     |
 | 500         | Error no previsto (bug): el detalle queda en el log |
 | 502 / 503   | Falló la consulta a D1 o no se pudo conectar        |
 

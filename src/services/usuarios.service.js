@@ -17,6 +17,8 @@ async function buscarPorNombreUsuario(nombreUsuario) {
       email: usuarios.email,
       password_hash: usuarios.password_hash,
       activo: usuarios.activo,
+      intentos_fallidos: usuarios.intentos_fallidos,
+      bloqueado_hasta: usuarios.bloqueado_hasta,
       rol: roles.nombre,
     })
     .from(usuarios)
@@ -27,4 +29,15 @@ async function buscarPorNombreUsuario(nombreUsuario) {
   return fila || null;
 }
 
-module.exports = { buscarPorNombreUsuario };
+async function actualizarIntentos(id, intentos, bloqueadoHasta) {
+  await db()
+    .update(usuarios)
+    .set({ intentos_fallidos: intentos, bloqueado_hasta: bloqueadoHasta })
+    .where(eq(usuarios.id, id));
+}
+
+async function reiniciarIntentos(id) {
+  await actualizarIntentos(id, 0, null);
+}
+
+module.exports = { buscarPorNombreUsuario, actualizarIntentos, reiniciarIntentos };
