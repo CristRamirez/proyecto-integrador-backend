@@ -9,6 +9,6 @@ const router = Router();
 router.post('/login', asyncHandler(auth.login));
 
 // GET /api/auth/yo  (protegida: devuelve los datos del token)
-router.get('/yo', requiereAutenticacion, auth.yo);
+router.get('/yo', requiereAutenticacion, asyncHandler(auth.yo));
 
 module.exports = router;

@@ -1,4 +1,5 @@
 const ApiError = require('../utils/ApiError');
+const roles = require('../services/roles.service');
 
 // Control de acceso por rol, reutilizable: se le pasan los roles permitidos y
 // devuelve el middleware ya armado para esa ruta. De esta forma no hay que
@@ -23,4 +24,22 @@ function requiereRol(...rolesPermitidos) {
   };
 }
 
-module.exports = { requiereRol };
+function requiereModulo(nombreModulo) {
+  return async function verificarModulo(req, res, next) {
+    if (!req.usuario) {
+      return next(ApiError.noAutenticado('Ruta protegida: falta iniciar sesión', 'SIN_SESION'));
+    }
+
+    try {
+      if (!(await roles.tieneModulo(req.usuario.rol, nombreModulo))) {
+        return next(ApiError.sinPermiso('Tu rol no tiene acceso a este módulo', 'MODULO_SIN_ACCESO'));
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+module.exports = { requiereRol, requiereModulo };
