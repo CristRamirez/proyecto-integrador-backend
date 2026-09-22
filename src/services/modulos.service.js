@@ -1,31 +1,54 @@
-const { consultar, consultarUno } = require('../db/d1');
+const { asc, eq } = require('drizzle-orm');
+const { db } = require('../db/d1');
+const { modulos, rolModulo } = require('../db/schema');
 
 async function listar() {
-  return consultar('SELECT id, nombre FROM modulos ORDER BY nombre');
+  return db().select().from(modulos).orderBy(asc(modulos.nombre));
 }
 
 async function obtenerPorId(id) {
-  return consultarUno('SELECT id, nombre FROM modulos WHERE id = ?', [id]);
+  const [fila] = await db().select().from(modulos).where(eq(modulos.id, id)).limit(1);
+
+  return fila || null;
 }
 
 async function buscarPorNombre(nombre) {
-  return consultarUno('SELECT id, nombre FROM modulos WHERE nombre = ?', [nombre]);
+  const [fila] = await db().select().from(modulos).where(eq(modulos.nombre, nombre)).limit(1);
+
+  return fila || null;
 }
 
 async function crear(nombre) {
-  return consultarUno('INSERT INTO modulos (nombre) VALUES (?) RETURNING id, nombre', [nombre]);
+  const [fila] = await db()
+    .insert(modulos)
+    .values({ nombre })
+    .returning({ id: modulos.id, nombre: modulos.nombre });
+
+  return fila || null;
 }
 
 async function actualizar(id, nombre) {
-  return consultarUno('UPDATE modulos SET nombre = ? WHERE id = ? RETURNING id, nombre', [nombre, id]);
+  const [fila] = await db()
+    .update(modulos)
+    .set({ nombre })
+    .where(eq(modulos.id, id))
+    .returning({ id: modulos.id, nombre: modulos.nombre });
+
+  return fila || null;
 }
 
 async function eliminar(id) {
-  await consultar('DELETE FROM modulos WHERE id = ?', [id]);
+  await db().delete(modulos).where(eq(modulos.id, id));
 }
 
+// Un módulo asignado a algún rol no se puede borrar: primero hay que sacárselo.
 async function estaAsignado(id) {
-  const fila = await consultarUno('SELECT 1 AS usado FROM rol_modulo WHERE modulo_id = ? LIMIT 1', [id]);
+  const [fila] = await db()
+    .select({ rol_id: rolModulo.rol_id })
+    .from(rolModulo)
+    .where(eq(rolModulo.modulo_id, id))
+    .limit(1);
+
   return Boolean(fila);
 }
 
