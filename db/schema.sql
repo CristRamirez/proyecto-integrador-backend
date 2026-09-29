@@ -179,6 +179,15 @@ CREATE TABLE IF NOT EXISTS medios_pago (
   nombre TEXT    NOT NULL UNIQUE            -- efectivo, transferencia, débito, cheque, obra social
 );
 
+-- Descuentos / bonificaciones aplicables a una cuota (beca, hermanos, etc.).
+CREATE TABLE IF NOT EXISTS descuentos (
+  id     INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT    NOT NULL UNIQUE,           -- beca completa, beca parcial, hermanos
+  tipo   TEXT    NOT NULL,                  -- 'porcentaje' o 'monto'
+  valor  REAL    NOT NULL,                  -- si tipo=porcentaje: 0-100; si tipo=monto: importe fijo
+  activo INTEGER NOT NULL DEFAULT 1         -- 1 = disponible para aplicar
+);
+
 -- ------------------------------------------------------------
 -- CONFIGURACIÓN DE CUOTAS (parámetros de facturación)
 -- ------------------------------------------------------------
@@ -207,6 +216,7 @@ CREATE TABLE IF NOT EXISTS cuotas (
   interno_id        INTEGER NOT NULL,          -- 1:N con internos
   config_cuota_id   INTEGER NOT NULL,          -- parámetros con que se generó
   estado_cuota_id   INTEGER NOT NULL,          -- estado actual de la cuota
+  descuento_id      INTEGER,                   -- descuento aplicado (opcional)
   periodo_anio      INTEGER NOT NULL,          -- año del período facturado
   periodo_mes       INTEGER NOT NULL,          -- mes del período (1-12)
   valor_base        REAL    NOT NULL,          -- valor sin interés
@@ -218,6 +228,7 @@ CREATE TABLE IF NOT EXISTS cuotas (
   FOREIGN KEY (interno_id)      REFERENCES internos(id),
   FOREIGN KEY (config_cuota_id) REFERENCES configuracion_cuotas(id),
   FOREIGN KEY (estado_cuota_id) REFERENCES estados_cuota(id),
+  FOREIGN KEY (descuento_id)    REFERENCES descuentos(id),
   UNIQUE (interno_id, periodo_anio, periodo_mes)   -- una cuota por interno y período
 );
 
@@ -281,4 +292,28 @@ INSERT OR IGNORE INTO medios_pago (nombre) VALUES
   ('débito'),
   ('cheque'),
   ('obra social');
+
+INSERT OR IGNORE INTO descuentos (nombre, tipo, valor) VALUES
+  ('beca completa', 'porcentaje', 100),
+  ('beca parcial',  'porcentaje', 50),
+  ('hermanos',      'porcentaje', 15);
 -- (El módulo 'cobranzas' ya se carga en la sección de módulos de arriba.)
+
+-- ============================================================
+-- AUDITORÍA (registro de acciones de los usuarios)
+-- ============================================================
+
+-- Bitácora: qué usuario hizo qué acción, sobre qué registro y cuándo.
+CREATE TABLE IF NOT EXISTS auditoria (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  usuario_id INTEGER,                          -- quién hizo la acción
+  accion     TEXT    NOT NULL,                 -- crear, modificar, eliminar, login, etc.
+  entidad    TEXT    NOT NULL,                 -- tabla afectada (internos, cuotas, pagos...)
+  entidad_id INTEGER,                          -- id del registro afectado
+  detalle    TEXT,                             -- descripción / JSON con el cambio
+  fecha      TEXT    NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_auditoria_entidad ON auditoria(entidad, entidad_id);
