@@ -101,6 +101,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | PUT    | `/api/roles/:id/modulos`  | rol `administrador`   | Reemplaza los módulos del rol: `{"modulos":[1,3]}`|
 | GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
 | GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
+| GET    | `/api/internos`           | módulo `internos`     | Padrón: búsqueda, filtros y paginación (BS-3)   |
 | GET    | `/api/internos/verificar-dni/:dni` | módulo `internos` | Avisa si ya hay un interno activo con ese DNI |
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 
@@ -200,6 +201,57 @@ Authorization: Bearer <token>
 Si no hay un interno activo con ese DNI responde `"duplicado": false` e `"interno": null`.
 Si el DNI no tiene 7 u 8 dígitos responde 400 `DNI_INVALIDO`, igual que el alta. La consulta
 es solo un aviso: el `POST` lo vuelve a controlar y sigue rechazando el duplicado con 409.
+
+### Padrón de internos (BS-3)
+
+```
+GET /api/internos?q=perez juan&estado=activo&judicializado=1&pagina=1&por_pagina=20
+Authorization: Bearer <token>
+```
+
+Todos los parámetros son opcionales y se combinan entre sí:
+
+| Parámetro | Qué hace |
+|-----------|----------|
+| `q` | Busca en DNI, apellido, nombre y número de legajo, sin distinguir mayúsculas ni acentos (tampoco la ñ: `nunez` encuentra a Núñez). Con varias palabras, cada una tiene que aparecer en alguno de esos campos (se toman hasta 5). |
+| `estado` | `activo` o `egresado`. Sin el parámetro vienen todos. |
+| `judicializado` | `1` o `0`. Sin el parámetro vienen todos. |
+| `pagina` | Página pedida, arranca en 1. Por defecto 1. |
+| `por_pagina` | Internos por página. Por defecto 20, máximo 100. |
+
+Respuesta, ordenada por apellido y nombre:
+
+```json
+{
+  "ok": true,
+  "internos": [
+    {
+      "id": 3,
+      "dni": "28999000",
+      "apellido": "Núñez",
+      "nombre": "Ángel",
+      "legajo": "LEG-20261002-0003",
+      "estado": "activo",
+      "judicializado": 0,
+      "fecha_ingreso": "2026-10-02",
+      "tiene_deuda": true
+    }
+  ],
+  "paginacion": { "pagina": 1, "por_pagina": 20, "total": 1, "total_paginas": 1 }
+}
+```
+
+`legajo` es el último legajo abierto del interno. `tiene_deuda` es `true` si al interno le
+queda saldo en alguna cuota ya vencida que no esté anulada (tablas `cuotas` y
+`estados_cuota` de cobranzas); mientras no se generen cuotas viene siempre en `false`.
+
+Errores propios del padrón:
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ESTADO_INEXISTENTE` | `estado` no es un estado del catálogo |
+| 400 `DATOS_INVALIDOS` | `judicializado` no es 1 ni 0 |
+| 400 `PAGINACION_INVALIDA` | `pagina` o `por_pagina` no son enteros mayores a cero |
 
 ## Formato de las respuestas de error
 

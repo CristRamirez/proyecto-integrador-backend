@@ -1,4 +1,4 @@
-const { and, asc, eq } = require('drizzle-orm');
+const { and, asc, count, desc, eq, exists, gt, lt, ne, or, sql } = require('drizzle-orm');
 const { db } = require('../db/d1');
 const {
   internos,
@@ -6,8 +6,87 @@ const {
   obrasSociales,
   contactosFamiliares,
   historialEstados,
+  legajos: tablaLegajos,
+  cuotas,
+  estadosCuota,
 } = require('../db/schema');
 const legajos = require('./legajos.service');
+
+// SQLite no tiene una función para sacar acentos y su lower() solo pasa a
+// minúscula las letras sin acento, así que se arma con replace(). La ñ también
+// se iguala a la n: así "nunez" encuentra a Núñez aunque se escriba sin ñ. Las letras
+// van escritas en el SQL (sql.raw) y no como parámetros, porque D1 acepta
+// hasta 100 parámetros por consulta y acá serían más de diez por columna.
+const ACENTOS = [
+  ['á', 'a'], ['é', 'e'], ['í', 'i'], ['ó', 'o'], ['ú', 'u'], ['ü', 'u'],
+  ['Á', 'a'], ['É', 'e'], ['Í', 'i'], ['Ó', 'o'], ['Ú', 'u'], ['Ü', 'u'],
+  ['ñ', 'n'], ['Ñ', 'n'],
+];
+
+function sinAcentos(columna) {
+  return ACENTOS.reduce(
+    (expresion, [con, sin]) => sql`replace(${expresion}, ${sql.raw(`'${con}'`)}, ${sql.raw(`'${sin}'`)})`,
+    sql`lower(${columna})`
+  );
+}
+
+// El texto buscado se normaliza igual que las columnas, del lado de JS.
+function normalizar(texto) {
+  return ACENTOS.reduce((resultado, [con, sin]) => resultado.split(con).join(sin), texto.toLowerCase());
+}
+
+// % y _ son comodines de LIKE: si vienen en lo buscado se escapan para que
+// se busquen tal cual.
+function contiene(columna, palabra) {
+  const patron = `%${normalizar(palabra).replace(/[\\%_]/g, '\\$&')}%`;
+
+  return sql`${sinAcentos(columna)} LIKE ${patron} ESCAPE '\\'`;
+}
+
+// Cada palabra tiene que aparecer en alguno de los cuatro campos (DNI,
+// apellido, nombre o algún legajo): "perez juan" encuentra a Juan Pérez.
+function coincideCon(palabra) {
+  return or(
+    contiene(internos.dni, palabra),
+    contiene(internos.apellido, palabra),
+    contiene(internos.nombre, palabra),
+    exists(
+      db()
+        .select({ id: tablaLegajos.id })
+        .from(tablaLegajos)
+        .where(and(eq(tablaLegajos.interno_id, internos.id), contiene(tablaLegajos.numero, palabra)))
+    )
+  );
+}
+
+// Un interno tiene deuda si le queda saldo en alguna cuota ya vencida que no
+// esté anulada. Mientras no se generen cuotas, nadie aparece con deuda.
+function tieneDeuda() {
+  return exists(
+    db()
+      .select({ id: cuotas.id })
+      .from(cuotas)
+      .innerJoin(estadosCuota, eq(estadosCuota.id, cuotas.estado_cuota_id))
+      .where(
+        and(
+          eq(cuotas.interno_id, internos.id),
+          gt(cuotas.saldo_pendiente, 0),
+          lt(cuotas.fecha_vencimiento, sql`date('now')`),
+          ne(estadosCuota.nombre, 'anulada')
+        )
+      )
+  );
+}
+
+// El legajo que se muestra en la lista es el último que se abrió.
+function ultimoLegajo() {
+  return sql`(${db()
+    .select({ numero: tablaLegajos.numero })
+    .from(tablaLegajos)
+    .where(eq(tablaLegajos.interno_id, internos.id))
+    .orderBy(desc(tablaLegajos.id))
+    .limit(1)})`;
+}
 
 // Un interno se considera duplicado solo si el DNI ya existe entre los activos
 // (RN6): los egresados pueden tener el mismo DNI si algún día vuelven a ingresar.
@@ -126,7 +205,49 @@ async function obtenerFichaBasica(internoId) {
   };
 }
 
+// Padrón de internos (BS-3): búsqueda por texto, filtros y paginación.
+// Todos los criterios se combinan entre sí. Devuelve la página pedida y el
+// total de internos que cumplen, para que el front arme el paginado.
+async function buscar({ palabras = [], estadoId = null, judicializado = null, pagina = 1, porPagina = 20 }) {
+  const condiciones = palabras.map(coincideCon);
+
+  if (estadoId !== null) {
+    condiciones.push(eq(internos.estado_id, estadoId));
+  }
+
+  if (judicializado !== null) {
+    condiciones.push(eq(internos.judicializado, judicializado));
+  }
+
+  const filtro = condiciones.length ? and(...condiciones) : undefined;
+
+  const [{ total }] = await db().select({ total: count() }).from(internos).where(filtro);
+
+  const filas = await db()
+    .select({
+      id: internos.id,
+      dni: internos.dni,
+      apellido: internos.apellido,
+      nombre: internos.nombre,
+      legajo: ultimoLegajo(),
+      estado: estados.nombre,
+      judicializado: internos.judicializado,
+      fecha_ingreso: internos.fecha_ingreso,
+      tiene_deuda: sql`${tieneDeuda()}`.mapWith(Boolean),
+    })
+    .from(internos)
+    .innerJoin(estados, eq(estados.id, internos.estado_id))
+    .where(filtro)
+    // Se ordena sin acentos ni mayúsculas para que Álvarez no quede después de Zárate.
+    .orderBy(asc(sinAcentos(internos.apellido)), asc(sinAcentos(internos.nombre)), asc(internos.id))
+    .limit(porPagina)
+    .offset((pagina - 1) * porPagina);
+
+  return { internos: filas, total };
+}
+
 module.exports = {
+  buscar,
   buscarActivoPorDni,
   crear,
   agregarContactos,
