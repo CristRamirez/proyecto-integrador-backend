@@ -6,6 +6,7 @@ const {
   obrasSociales,
   contactosFamiliares,
   historialEstados,
+  usuarios,
   legajos: tablaLegajos,
   cuotas,
   estadosCuota,
@@ -205,6 +206,32 @@ async function obtenerFichaBasica(internoId) {
   };
 }
 
+async function listarHistorial(internoId) {
+  return db()
+    .select({
+      id: historialEstados.id,
+      estado: estados.nombre,
+      fecha: historialEstados.fecha,
+      motivo: historialEstados.motivo,
+      usuario: usuarios.nombre_completo,
+    })
+    .from(historialEstados)
+    .innerJoin(estados, eq(estados.id, historialEstados.estado_id))
+    .leftJoin(usuarios, eq(usuarios.id, historialEstados.usuario_id))
+    .where(eq(historialEstados.interno_id, internoId))
+    .orderBy(asc(historialEstados.fecha), asc(historialEstados.id));
+}
+
+async function obtenerFicha(internoId) {
+  const interno = await obtenerFichaBasica(internoId);
+
+  if (!interno) {
+    return null;
+  }
+
+  return { ...interno, historial: await listarHistorial(internoId) };
+}
+
 // Padrón de internos (BS-3): búsqueda por texto, filtros y paginación.
 // Todos los criterios se combinan entre sí. Devuelve la página pedida y el
 // total de internos que cumplen, para que el front arme el paginado.
@@ -254,4 +281,6 @@ module.exports = {
   registrarEstado,
   listarContactos,
   obtenerFichaBasica,
+  listarHistorial,
+  obtenerFicha,
 };

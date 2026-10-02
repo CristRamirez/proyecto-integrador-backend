@@ -10,6 +10,7 @@ router.use(requiereAutenticacion, requiereModulo('internos'));
 
 router.get('/', asyncHandler(internos.listar));
 router.get('/verificar-dni/:dni', asyncHandler(internos.verificarDni));
+router.get('/:id', asyncHandler(internos.ficha));
 router.post('/', asyncHandler(internos.alta));
 
 module.exports = router;

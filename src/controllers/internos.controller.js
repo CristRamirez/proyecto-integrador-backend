@@ -260,6 +260,22 @@ async function listar(req, res) {
   });
 }
 
+async function ficha(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw ApiError.solicitudInvalida('El id del interno no es válido', 'ID_INVALIDO');
+  }
+
+  const interno = await internos.obtenerFicha(id);
+
+  if (!interno) {
+    throw ApiError.noEncontrado('El interno no existe', 'INTERNO_NO_ENCONTRADO');
+  }
+
+  res.json({ ok: true, interno });
+}
+
 // GET /api/internos/verificar-dni/:dni
 // La usa la pantalla de alta para avisar del DNI repetido apenas se escribe,
 // antes de tocar "Guardar". El alta lo vuelve a controlar igual al guardar.
@@ -269,4 +285,4 @@ async function verificarDni(req, res) {
   res.json({ ok: true, duplicado: Boolean(interno), interno });
 }
 
-module.exports = { alta, listar, verificarDni };
+module.exports = { alta, listar, verificarDni, ficha };
