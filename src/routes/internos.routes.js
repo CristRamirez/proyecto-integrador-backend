@@ -8,6 +8,7 @@ const router = Router();
 
 router.use(requiereAutenticacion, requiereModulo('internos'));
 
+router.get('/verificar-dni/:dni', asyncHandler(internos.verificarDni));
 router.post('/', asyncHandler(internos.alta));
 
 module.exports = router;
