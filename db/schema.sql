@@ -3,6 +3,10 @@
 -- Alcance: login con roles (BS-1) + módulo Internos (BS-2 a BS-6)
 -- ============================================================
 
+-- Las claves foráneas no se validan por conexión salvo que se active.
+-- Sin esto, las FK de abajo no se enforcan.
+PRAGMA foreign_keys = ON;
+
 -- ------------------------------------------------------------
 -- AUTH
 -- ------------------------------------------------------------
@@ -73,7 +77,7 @@ CREATE TABLE IF NOT EXISTS internos (
   apellido         TEXT    NOT NULL,
   nombre           TEXT    NOT NULL,
   fecha_nacimiento TEXT,
-  judicializado    INTEGER NOT NULL DEFAULT 0,      -- 1 = judicializado, 0 = no
+  judicializado    INTEGER NOT NULL DEFAULT 0 CHECK (judicializado IN (0, 1)), -- 1 = judicializado, 0 = no
   datos_salud      TEXT,                            -- datos de salud / observaciones
   obra_social_id   INTEGER,                         -- cobertura
   fecha_ingreso    TEXT    NOT NULL,                -- inmutable
@@ -88,8 +92,9 @@ CREATE TABLE IF NOT EXISTS internos (
   FOREIGN KEY (modificado_por) REFERENCES usuarios(id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_internos_dni    ON internos(dni);
-CREATE INDEX IF NOT EXISTS idx_internos_estado ON internos(estado_id);
+CREATE INDEX IF NOT EXISTS idx_internos_dni         ON internos(dni);
+CREATE INDEX IF NOT EXISTS idx_internos_estado      ON internos(estado_id);
+CREATE INDEX IF NOT EXISTS idx_internos_obra_social ON internos(obra_social_id); -- BS-3: filtro por cobertura
 
 -- Legajos del interno. Un interno puede tener varios legajos (relación 1:N).
 CREATE TABLE IF NOT EXISTS legajos (
@@ -144,6 +149,17 @@ INSERT OR IGNORE INTO roles (nombre) VALUES
 INSERT OR IGNORE INTO estados (nombre) VALUES
   ('activo'),
   ('egresado');
+
+INSERT OR IGNORE INTO obras_sociales (nombre) VALUES
+  ('Sin cobertura'),
+  ('PAMI'),
+  ('IOMA'),
+  ('OSDE'),
+  ('Swiss Medical'),
+  ('Galeno'),
+  ('OSECAC'),
+  ('Medicus'),
+  ('Particular');
 
 INSERT OR IGNORE INTO modulos (nombre) VALUES
   ('internos'),
