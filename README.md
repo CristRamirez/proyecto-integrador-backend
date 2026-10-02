@@ -101,6 +101,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | PUT    | `/api/roles/:id/modulos`  | rol `administrador`   | Reemplaza los módulos del rol: `{"modulos":[1,3]}`|
 | GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
 | GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
+| GET    | `/api/internos/verificar-dni/:dni` | módulo `internos` | Avisa si ya hay un interno activo con ese DNI |
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
@@ -183,6 +184,22 @@ Errores propios del alta:
 | 400 `FECHA_INVALIDA` | una fecha no tiene formato AAAA-MM-DD, o el ingreso es futuro |
 | 400 `OBRA_SOCIAL_INEXISTENTE` | la obra social indicada no está en el catálogo |
 | 409 `DNI_DUPLICADO` | ya hay un **interno activo** con ese DNI |
+
+**Aviso de DNI repetido antes de guardar.** La pantalla de alta puede consultar el DNI
+apenas se escribe, sin esperar a "Guardar":
+
+```
+GET /api/internos/verificar-dni/30111222
+Authorization: Bearer <token>
+```
+
+```json
+{ "ok": true, "duplicado": true, "interno": { "id": 7, "dni": "30111222", "apellido": "Perez", "nombre": "Juan" } }
+```
+
+Si no hay un interno activo con ese DNI responde `"duplicado": false` e `"interno": null`.
+Si el DNI no tiene 7 u 8 dígitos responde 400 `DNI_INVALIDO`, igual que el alta. La consulta
+es solo un aviso: el `POST` lo vuelve a controlar y sigue rechazando el duplicado con 409.
 
 ## Formato de las respuestas de error
 

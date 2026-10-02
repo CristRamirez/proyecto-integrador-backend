@@ -183,4 +183,13 @@ async function alta(req, res) {
   res.status(201).json({ ok: true, interno: await internos.obtenerFichaBasica(internoId) });
 }
 
-module.exports = { alta };
+// GET /api/internos/verificar-dni/:dni
+// La usa la pantalla de alta para avisar del DNI repetido apenas se escribe,
+// antes de tocar "Guardar". El alta lo vuelve a controlar igual al guardar.
+async function verificarDni(req, res) {
+  const interno = await internos.buscarActivoPorDni(leerDni(req.params.dni));
+
+  res.json({ ok: true, duplicado: Boolean(interno), interno });
+}
+
+module.exports = { alta, verificarDni };
