@@ -5,6 +5,11 @@ const catalogos = require('../services/catalogos.service');
 
 const ESTADO_INICIAL = 'activo';
 const MINIMO_CONTACTOS = 2;
+const POR_PAGINA = 20;
+const MAXIMO_POR_PAGINA = 100;
+// Cada palabra suma parámetros a la consulta y D1 acepta hasta 100: con 5
+// palabras sobra para buscar por nombre completo.
+const MAXIMO_PALABRAS = 5;
 
 function texto(valor) {
   return typeof valor === 'string' ? valor.trim() : '';
@@ -183,6 +188,94 @@ async function alta(req, res) {
   res.status(201).json({ ok: true, interno: await internos.obtenerFichaBasica(internoId) });
 }
 
+function leerPalabras(valor) {
+  return texto(valor).split(/\s+/).filter(Boolean).slice(0, MAXIMO_PALABRAS);
+}
+
+async function leerFiltroEstado(valor) {
+  const nombre = texto(valor).toLowerCase();
+
+  if (!nombre) {
+    return null;
+  }
+
+  const estado = await catalogos.buscarEstadoPorNombre(nombre);
+
+  if (!estado) {
+    throw ApiError.solicitudInvalida('El estado no existe', 'ESTADO_INEXISTENTE');
+  }
+
+  return estado.id;
+}
+
+// En el filtro, que no venga significa "todos", no "no judicializado".
+function leerFiltroJudicializado(valor) {
+  if (valor === undefined || texto(valor) === '') {
+    return null;
+  }
+
+  return leerJudicializado(texto(valor));
+}
+
+function leerEnteroPositivo(valor, porDefecto, etiqueta) {
+  if (valor === undefined || texto(valor) === '') {
+    return porDefecto;
+  }
+
+  const numero = Number(valor);
+
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw ApiError.solicitudInvalida(`${etiqueta} tiene que ser un número entero mayor a cero`, 'PAGINACION_INVALIDA');
+  }
+
+  return numero;
+}
+
+// GET /api/internos?q=&estado=&judicializado=&pagina=&por_pagina=
+async function listar(req, res) {
+  const consulta = req.query;
+  const pagina = leerEnteroPositivo(consulta.pagina, 1, 'La página');
+  const porPagina = Math.min(
+    leerEnteroPositivo(consulta.por_pagina, POR_PAGINA, 'La cantidad por página'),
+    MAXIMO_POR_PAGINA
+  );
+
+  const { internos: encontrados, total } = await internos.buscar({
+    palabras: leerPalabras(consulta.q),
+    estadoId: await leerFiltroEstado(consulta.estado),
+    judicializado: leerFiltroJudicializado(consulta.judicializado),
+    pagina,
+    porPagina,
+  });
+
+  res.json({
+    ok: true,
+    internos: encontrados,
+    paginacion: {
+      pagina,
+      por_pagina: porPagina,
+      total,
+      total_paginas: Math.ceil(total / porPagina),
+    },
+  });
+}
+
+async function ficha(req, res) {
+  const id = Number(req.params.id);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw ApiError.solicitudInvalida('El id del interno no es válido', 'ID_INVALIDO');
+  }
+
+  const interno = await internos.obtenerFicha(id);
+
+  if (!interno) {
+    throw ApiError.noEncontrado('El interno no existe', 'INTERNO_NO_ENCONTRADO');
+  }
+
+  res.json({ ok: true, interno });
+}
+
 // GET /api/internos/verificar-dni/:dni
 // La usa la pantalla de alta para avisar del DNI repetido apenas se escribe,
 // antes de tocar "Guardar". El alta lo vuelve a controlar igual al guardar.
@@ -192,4 +285,4 @@ async function verificarDni(req, res) {
   res.json({ ok: true, duplicado: Boolean(interno), interno });
 }
 
-module.exports = { alta, verificarDni };
+module.exports = { alta, listar, verificarDni, ficha };

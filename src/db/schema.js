@@ -1,5 +1,5 @@
 const { sql } = require('drizzle-orm');
-const { sqliteTable, integer, text, primaryKey } = require('drizzle-orm/sqlite-core');
+const { sqliteTable, integer, real, text, primaryKey } = require('drizzle-orm/sqlite-core');
 
 // Las tablas del sistema descritas para el ORM. Es el mismo esquema que crea
 // db/schema.sql: si se toca una tabla allá, hay que tocarla acá también.
@@ -109,6 +109,33 @@ const historialEstados = sqliteTable('historial_estados', {
   usuario_id: integer('usuario_id'),
 });
 
+// ------------------------------------------------------------
+// COBRANZAS
+// ------------------------------------------------------------
+// Por ahora solo las tablas que lee el padrón (BS-3) para marcar a los
+// internos con deuda. El resto de cobranzas se suma cuando se haga el módulo.
+
+const estadosCuota = sqliteTable('estados_cuota', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  nombre: text('nombre').notNull(),
+});
+
+const cuotas = sqliteTable('cuotas', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  interno_id: integer('interno_id').notNull(),
+  config_cuota_id: integer('config_cuota_id').notNull(),
+  estado_cuota_id: integer('estado_cuota_id').notNull(),
+  descuento_id: integer('descuento_id'),
+  periodo_anio: integer('periodo_anio').notNull(),
+  periodo_mes: integer('periodo_mes').notNull(),
+  valor_base: real('valor_base').notNull(),
+  interes_aplicado: real('interes_aplicado').notNull().default(0),
+  total: real('total').notNull(),
+  saldo_pendiente: real('saldo_pendiente').notNull(),
+  fecha_vencimiento: text('fecha_vencimiento').notNull(),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+});
+
 module.exports = {
   roles,
   usuarios,
@@ -120,4 +147,6 @@ module.exports = {
   legajos,
   contactosFamiliares,
   historialEstados,
+  estadosCuota,
+  cuotas,
 };
