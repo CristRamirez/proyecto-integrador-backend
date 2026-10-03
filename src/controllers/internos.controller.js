@@ -260,13 +260,18 @@ async function listar(req, res) {
   });
 }
 
-async function ficha(req, res) {
-  const id = Number(req.params.id);
+function leerIdInterno(valor) {
+  const id = Number(valor);
 
   if (!Number.isInteger(id) || id <= 0) {
     throw ApiError.solicitudInvalida('El id del interno no es válido', 'ID_INVALIDO');
   }
 
+  return id;
+}
+
+async function ficha(req, res) {
+  const id = leerIdInterno(req.params.id);
   const interno = await internos.obtenerFicha(id);
 
   if (!interno) {
@@ -285,4 +290,90 @@ async function verificarDni(req, res) {
   res.json({ ok: true, duplicado: Boolean(interno), interno });
 }
 
-module.exports = { alta, listar, verificarDni, ficha };
+function viene(cuerpo, campo) {
+  return Object.prototype.hasOwnProperty.call(cuerpo, campo);
+}
+
+// La fecha de ingreso y el número de legajo no se modifican (BS-5). Si llegan
+// con el mismo valor que ya tienen se dejan pasar, así el front puede reenviar
+// el formulario completo; si cambian, se corta.
+function controlarNoModificables(cuerpo, actual) {
+  if (viene(cuerpo, 'fecha_ingreso') && texto(cuerpo.fecha_ingreso) !== actual.fecha_ingreso) {
+    throw ApiError.solicitudInvalida('La fecha de ingreso no se puede modificar', 'CAMPO_NO_MODIFICABLE');
+  }
+
+  if (viene(cuerpo, 'legajo') && !actual.legajos.some((legajo) => legajo.numero === texto(cuerpo.legajo))) {
+    throw ApiError.solicitudInvalida('El número de legajo no se puede modificar', 'CAMPO_NO_MODIFICABLE');
+  }
+}
+
+// PUT /api/internos/:id
+// Se manda solo lo que cambia: lo que no viene queda como está. Los contactos,
+// si vienen, reemplazan a los que había. El estado no se toca acá (es la baja, BS-6).
+async function modificar(req, res) {
+  const id = leerIdInterno(req.params.id);
+  const cuerpo = req.body || {};
+  const actual = await internos.obtenerFichaBasica(id);
+
+  if (!actual) {
+    throw ApiError.noEncontrado('El interno no existe', 'INTERNO_NO_ENCONTRADO');
+  }
+
+  controlarNoModificables(cuerpo, actual);
+
+  const cambios = {};
+
+  if (viene(cuerpo, 'dni')) {
+    cambios.dni = leerDni(cuerpo.dni);
+  }
+
+  if (viene(cuerpo, 'apellido')) {
+    cambios.apellido = leerObligatorio(cuerpo.apellido, 'el apellido');
+  }
+
+  if (viene(cuerpo, 'nombre')) {
+    cambios.nombre = leerObligatorio(cuerpo.nombre, 'el nombre');
+  }
+
+  if (viene(cuerpo, 'fecha_nacimiento')) {
+    cambios.fecha_nacimiento = leerFechaOpcional(cuerpo.fecha_nacimiento, 'La fecha de nacimiento');
+  }
+
+  if (viene(cuerpo, 'judicializado')) {
+    cambios.judicializado = leerJudicializado(cuerpo.judicializado);
+  }
+
+  if (viene(cuerpo, 'datos_salud')) {
+    cambios.datos_salud = texto(cuerpo.datos_salud) || null;
+  }
+
+  const contactos = viene(cuerpo, 'contactos') ? leerContactos(cuerpo.contactos) : null;
+
+  if (viene(cuerpo, 'obra_social_id')) {
+    cambios.obra_social_id = await leerObraSocial(cuerpo.obra_social_id);
+  }
+
+  if (!Object.keys(cambios).length && !contactos) {
+    throw ApiError.solicitudInvalida('No se envió ningún dato para modificar', 'SIN_CAMBIOS');
+  }
+
+  // Mismo control que en el alta (RN6): el DNI no se puede repetir entre los
+  // activos. Si el interno ya egresó, puede compartirlo.
+  if (cambios.dni && cambios.dni !== actual.dni && actual.estado === ESTADO_INICIAL) {
+    const repetido = await internos.buscarActivoPorDni(cambios.dni);
+
+    if (repetido && repetido.id !== id) {
+      throw new ApiError(409, 'Ya hay un interno activo con ese DNI', 'DNI_DUPLICADO');
+    }
+  }
+
+  await internos.actualizar(id, cambios, req.usuario.id);
+
+  if (contactos) {
+    await internos.reemplazarContactos(id, contactos);
+  }
+
+  res.json({ ok: true, interno: await internos.obtenerFicha(id) });
+}
+
+module.exports = { alta, listar, verificarDni, ficha, modificar };
