@@ -156,6 +156,28 @@ async function registrarEstado(internoId, estadoId, usuarioId, motivo = null) {
   });
 }
 
+// Guarda los datos que cambiaron y deja registrado quién y cuándo hizo la
+// modificación (BS-5). Se llama aunque solo cambien los contactos, porque
+// también es una modificación del interno.
+async function actualizar(internoId, cambios, usuarioId) {
+  await db()
+    .update(internos)
+    .set({
+      ...cambios,
+      modificado_por: usuarioId ?? null,
+      modificado_en: sql`(datetime('now'))`,
+    })
+    .where(eq(internos.id, internoId));
+}
+
+// Los contactos se reemplazan enteros: se borran los que había y se cargan
+// los que vienen, igual que los módulos de un rol.
+async function reemplazarContactos(internoId, contactos) {
+  await db().delete(contactosFamiliares).where(eq(contactosFamiliares.interno_id, internoId));
+
+  return agregarContactos(internoId, contactos);
+}
+
 async function listarContactos(internoId) {
   return db()
     .select({
@@ -170,8 +192,9 @@ async function listarContactos(internoId) {
     .orderBy(asc(contactosFamiliares.id));
 }
 
-// Lo que se devuelve después del alta: el interno con su estado, su obra social,
-// sus legajos y sus contactos. La ficha completa con historial es BS-4.
+// Lo que se devuelve después del alta y de la modificación: el interno con su
+// estado, su obra social, sus legajos y sus contactos. La ficha completa con
+// historial es BS-4.
 // La obra social va con leftJoin porque es opcional: si no tiene, viene NULL.
 async function obtenerFichaBasica(internoId) {
   const [interno] = await db()
@@ -186,7 +209,10 @@ async function obtenerFichaBasica(internoId) {
       fecha_ingreso: internos.fecha_ingreso,
       creado_por: internos.creado_por,
       creado_en: internos.creado_en,
+      modificado_por: internos.modificado_por,
+      modificado_en: internos.modificado_en,
       estado: estados.nombre,
+      obra_social_id: internos.obra_social_id,
       obra_social: obrasSociales.nombre,
     })
     .from(internos)
@@ -277,7 +303,9 @@ module.exports = {
   buscar,
   buscarActivoPorDni,
   crear,
+  actualizar,
   agregarContactos,
+  reemplazarContactos,
   registrarEstado,
   listarContactos,
   obtenerFichaBasica,

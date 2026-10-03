@@ -105,6 +105,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/internos/verificar-dni/:dni` | módulo `internos` | Avisa si ya hay un interno activo con ese DNI |
 | GET    | `/api/internos/:id`       | módulo `internos`     | Ficha completa del interno con historial (BS-4) |
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
+| PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -300,6 +301,56 @@ El alta deja la primera fila con `motivo` vacío.
 |--------|--------|
 | 400 `ID_INVALIDO` | el id no es un entero mayor a cero |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
+
+### Modificación de datos del interno (BS-5)
+
+```
+PUT /api/internos/1
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "apellido": "Pérez",
+  "datos_salud": "hipertenso, diabético",
+  "obra_social_id": 2,
+  "contactos": [
+    { "nombre": "Maria Perez", "parentesco": "madre", "telefono": "1155556666" },
+    { "nombre": "Ana Perez", "parentesco": "hermana", "email": "ana@mail.com" }
+  ]
+}
+```
+
+Se manda solo lo que cambia: lo que no viene queda como estaba. Se pueden modificar `dni`,
+`apellido`, `nombre`, `fecha_nacimiento`, `judicializado`, `datos_salud`, `obra_social_id` y
+`contactos`, con las mismas reglas que en el alta. Los opcionales se borran mandándolos en
+`null`. Si vienen `contactos`, reemplazan a todos los anteriores (siguen siendo mínimo dos).
+
+El número de legajo y la fecha de ingreso **no se modifican**. Si el front reenvía el formulario
+completo con `fecha_ingreso` o `legajo` sin cambios no pasa nada; si vienen con otro valor
+responde 400 `CAMPO_NO_MODIFICABLE`. El estado tampoco se cambia acá (eso es la baja).
+
+Al guardar queda registrado quién hizo la modificación (`modificado_por`) y la fecha y hora
+(`modificado_en`). Responde 200 con la ficha completa, igual que el `GET /api/internos/:id`.
+
+Errores propios de la modificación (además de los del alta):
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id no es un entero mayor a cero |
+| 400 `SIN_CAMBIOS` | no vino ningún campo para modificar |
+| 400 `CAMPO_NO_MODIFICABLE` | se intentó cambiar la fecha de ingreso o el legajo |
+| 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
+| 409 `DNI_DUPLICADO` | el DNI nuevo ya lo tiene otro **interno activo** |
+
+## Documentación para el front (Swagger)
+
+Todos los endpoints están descritos en [`docs/openapi.yaml`](docs/openapi.yaml) (formato
+OpenAPI 3, lo que usa Swagger): qué recibe cada uno, qué devuelve y los errores posibles.
+Para verlo como página se puede pegar el archivo en <https://editor.swagger.io>, o abrirlo
+en VS Code con la extensión *OpenAPI (Swagger) Editor*. Desde ahí mismo se pueden probar los
+pedidos: primero el login, y el token se carga en el botón **Authorize**.
+
+Cuando se agrega o se cambia una ruta, hay que actualizar también ese archivo.
 
 ## Formato de las respuestas de error
 

@@ -1,0 +1,838 @@
+openapi: 3.0.3
+info:
+  title: Proyecto Integrador - API REST
+  version: 0.2.0
+  description: |
+    API del sistema de gestión de internos y cobranzas.
+
+    **Cómo probar:** primero `POST /auth/login`, copiar el `token` de la respuesta y
+    cargarlo en el botón **Authorize** (sin escribir "Bearer", se agrega solo).
+
+    Todas las respuestas traen `ok`. Los errores tienen siempre la misma forma:
+    `{ "ok": false, "error": { "codigo": "...", "mensaje": "..." } }`. El front tiene que
+    decidir por `codigo` (no cambia) y mostrar `mensaje` (texto para el usuario).
+
+    Las fechas van como texto: `AAAA-MM-DD` las que carga el usuario y
+    `AAAA-MM-DD HH:MM:SS` (UTC) las que pone la base.
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local (npm run dev)
+
+tags:
+  - name: Salud
+  - name: Auth
+  - name: Internos
+  - name: Catálogos
+  - name: Módulos
+    description: ABM de módulos (solo rol administrador)
+  - name: Roles
+    description: Permisos de cada rol (solo rol administrador)
+  - name: Ejemplo
+    description: Rutas de muestra, no son parte del sistema
+
+security:
+  - token: []
+
+paths:
+  # ------------------------------------------------------------------
+  # SALUD
+  # ------------------------------------------------------------------
+  /salud:
+    get:
+      tags: [Salud]
+      summary: Ver si la API está viva
+      security: []
+      parameters:
+        - name: db
+          in: query
+          required: false
+          description: Con `1` también prueba la conexión a la base.
+          schema: { type: string, enum: ['1'] }
+      responses:
+        '200':
+          description: La API responde
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  servicio: { type: string, example: proyecto-integrador-api }
+                  version: { type: string, example: 0.2.0 }
+                  hora: { type: string, format: date-time }
+                  baseDeDatos:
+                    type: object
+                    description: Solo viene con `?db=1`
+                    properties:
+                      conectada: { type: boolean, example: true }
+                      roles: { type: integer, example: 5 }
+
+  # ------------------------------------------------------------------
+  # AUTH
+  # ------------------------------------------------------------------
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Iniciar sesión (devuelve el token)
+      description: |
+        A los 5 intentos fallidos seguidos el usuario queda bloqueado 5 minutos (423),
+        aunque después ponga bien la contraseña.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nombre_usuario, password]
+              properties:
+                nombre_usuario: { type: string, example: admin }
+                password: { type: string, example: admin1234 }
+      responses:
+        '200':
+          description: Login correcto
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  token: { type: string, example: eyJhbGciOi... }
+                  usuario:
+                    allOf:
+                      - $ref: '#/components/schemas/UsuarioSesion'
+                      - type: object
+                        properties:
+                          nombreCompleto: { type: string, nullable: true, example: Administrador de prueba }
+        '400': { $ref: '#/components/responses/SolicitudInvalida' }
+        '401':
+          description: '`CREDENCIALES_INVALIDAS` (mismo mensaje si falla el usuario o la contraseña)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403':
+          description: '`USUARIO_INACTIVO`: el usuario está deshabilitado'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '423':
+          description: '`USUARIO_BLOQUEADO`: bloqueado por intentos fallidos'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/yo:
+    get:
+      tags: [Auth]
+      summary: Datos del usuario dueño del token
+      description: Sirve para saber si la sesión sigue viva y qué opciones del menú mostrar.
+      responses:
+        '200':
+          description: Token válido
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  usuario: { $ref: '#/components/schemas/UsuarioSesion' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  # ------------------------------------------------------------------
+  # INTERNOS
+  # ------------------------------------------------------------------
+  /internos:
+    get:
+      tags: [Internos]
+      summary: Padrón de internos (BS-3)
+      description: |
+        Búsqueda, filtros y paginación. Todos los parámetros son opcionales y se combinan.
+        Ordenado por apellido y nombre.
+      parameters:
+        - name: q
+          in: query
+          description: |
+            Busca en DNI, apellido, nombre y número de legajo, sin distinguir mayúsculas,
+            acentos ni ñ. Con varias palabras, cada una tiene que aparecer en algún campo
+            (se toman hasta 5).
+          schema: { type: string, example: perez juan }
+        - name: estado
+          in: query
+          schema: { type: string, enum: [activo, egresado] }
+        - name: judicializado
+          in: query
+          schema: { type: string, enum: ['0', '1'] }
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: por_pagina
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Página del padrón
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  internos:
+                    type: array
+                    items: { $ref: '#/components/schemas/InternoPadron' }
+                  paginacion:
+                    type: object
+                    properties:
+                      pagina: { type: integer, example: 1 }
+                      por_pagina: { type: integer, example: 20 }
+                      total: { type: integer, example: 1 }
+                      total_paginas: { type: integer, example: 1 }
+        '400':
+          description: '`ESTADO_INEXISTENTE`, `DATOS_INVALIDOS` (judicializado) o `PAGINACION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+    post:
+      tags: [Internos]
+      summary: Alta de interno (BS-2)
+      description: |
+        Crea el interno en estado `activo`, le genera el legajo (`LEG-AAAAMMDD-NNNN`),
+        guarda los contactos y deja la primera fila del historial de estados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternoAlta' }
+      responses:
+        '201':
+          description: Interno creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno: { $ref: '#/components/schemas/InternoFicha' }
+        '400':
+          description: |
+            `DATOS_INCOMPLETOS`, `DNI_INVALIDO`, `CONTACTOS_INSUFICIENTES`, `CONTACTO_INVALIDO`,
+            `FECHA_INVALIDA`, `DATOS_INVALIDOS`, `ID_INVALIDO` u `OBRA_SOCIAL_INEXISTENTE`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/DniDuplicado' }
+
+  /internos/verificar-dni/{dni}:
+    get:
+      tags: [Internos]
+      summary: Avisar si el DNI ya es de un interno activo
+      description: |
+        Para avisar en la pantalla de alta apenas se escribe el DNI. Es solo un aviso:
+        el alta lo vuelve a controlar al guardar.
+      parameters:
+        - name: dni
+          in: path
+          required: true
+          schema: { type: string, pattern: '^\d{7,8}$', example: '30111222' }
+      responses:
+        '200':
+          description: Resultado de la consulta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  duplicado: { type: boolean, example: true }
+                  interno:
+                    type: object
+                    nullable: true
+                    description: '`null` si no está repetido'
+                    properties:
+                      id: { type: integer, example: 7 }
+                      dni: { type: string, example: '30111222' }
+                      apellido: { type: string, example: Perez }
+                      nombre: { type: string, example: Juan }
+        '400':
+          description: '`DNI_INVALIDO`: no es un número de 7 u 8 dígitos'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /internos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+    get:
+      tags: [Internos]
+      summary: Ficha completa del interno (BS-4)
+      description: Datos, legajos, contactos y la línea de tiempo de estados (del más viejo al más nuevo).
+      responses:
+        '200':
+          description: Ficha del interno
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno: { $ref: '#/components/schemas/InternoFichaCompleta' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+
+    put:
+      tags: [Internos]
+      summary: Modificación de datos del interno (BS-5)
+      description: |
+        Se manda solo lo que cambia; lo que no viene queda como estaba. Los opcionales se
+        borran mandándolos en `null`. Si vienen `contactos`, reemplazan a todos los anteriores.
+
+        **No se modifican** el número de legajo ni la fecha de ingreso: si llegan con el mismo
+        valor que ya tienen se ignoran (así se puede reenviar el formulario completo), si
+        llegan con otro valor responde 400 `CAMPO_NO_MODIFICABLE`. El estado tampoco se
+        cambia por acá.
+
+        Al guardar se registra el usuario (`modificado_por`) y la fecha y hora (`modificado_en`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternoModificacion' }
+            example:
+              apellido: Pérez
+              datos_salud: hipertenso, diabético
+              obra_social_id: 2
+              contactos:
+                - { nombre: Maria Perez, parentesco: madre, telefono: '1155556666' }
+                - { nombre: Ana Perez, parentesco: hermana, email: ana@mail.com }
+      responses:
+        '200':
+          description: Interno modificado, devuelve la ficha completa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno: { $ref: '#/components/schemas/InternoFichaCompleta' }
+        '400':
+          description: |
+            `ID_INVALIDO`, `SIN_CAMBIOS`, `CAMPO_NO_MODIFICABLE`, o los mismos errores de
+            validación del alta (`DATOS_INCOMPLETOS`, `DNI_INVALIDO`, `CONTACTOS_INSUFICIENTES`,
+            `CONTACTO_INVALIDO`, `FECHA_INVALIDA`, `DATOS_INVALIDOS`, `OBRA_SOCIAL_INEXISTENTE`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+        '409': { $ref: '#/components/responses/DniDuplicado' }
+
+  # ------------------------------------------------------------------
+  # CATÁLOGOS
+  # ------------------------------------------------------------------
+  /estados:
+    get:
+      tags: [Catálogos]
+      summary: Estados posibles del interno
+      responses:
+        '200':
+          description: Lista ordenada por nombre
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  estados:
+                    type: array
+                    items: { $ref: '#/components/schemas/ItemCatalogo' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  /obras-sociales:
+    get:
+      tags: [Catálogos]
+      summary: Obras sociales (para el desplegable)
+      responses:
+        '200':
+          description: Lista ordenada por nombre
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  obrasSociales:
+                    type: array
+                    items: { $ref: '#/components/schemas/ItemCatalogo' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  # ------------------------------------------------------------------
+  # MÓDULOS
+  # ------------------------------------------------------------------
+  /modulos:
+    get:
+      tags: [Módulos]
+      summary: Listar módulos del sistema
+      responses:
+        '200':
+          description: Lista ordenada por nombre
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  modulos:
+                    type: array
+                    items: { $ref: '#/components/schemas/ItemCatalogo' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    post:
+      tags: [Módulos]
+      summary: Crear módulo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModuloNombre' }
+      responses:
+        '201':
+          description: Módulo creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaModulo' }
+        '400':
+          description: '`DATOS_INCOMPLETOS` o `NOMBRE_INVALIDO` (más de 40 caracteres)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409':
+          description: '`MODULO_DUPLICADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /modulos/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    put:
+      tags: [Módulos]
+      summary: Renombrar módulo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModuloNombre' }
+      responses:
+        '200':
+          description: Módulo actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaModulo' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` o `NOMBRE_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`MODULO_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`MODULO_DUPLICADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [Módulos]
+      summary: Borrar módulo
+      description: Solo si no está asignado a ningún rol.
+      responses:
+        '204':
+          description: Borrado (sin cuerpo)
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`MODULO_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`MODULO_EN_USO`: está asignado a un rol'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ------------------------------------------------------------------
+  # ROLES
+  # ------------------------------------------------------------------
+  /roles:
+    get:
+      tags: [Roles]
+      summary: Listar roles con su cantidad de módulos
+      responses:
+        '200':
+          description: Lista ordenada por nombre
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, example: 1 }
+                        nombre: { type: string, example: administrador }
+                        cantidad_modulos: { type: integer, example: 6 }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /roles/{id}/modulos:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [Roles]
+      summary: Módulos a los que accede el rol
+      responses:
+        '200':
+          description: Módulos del rol
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaModulosRol' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`ROL_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      tags: [Roles]
+      summary: Reemplazar los módulos del rol
+      description: La lista que se manda reemplaza entera a la anterior. Vacía le saca todos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modulos]
+              properties:
+                modulos:
+                  type: array
+                  items: { type: integer }
+                  example: [1, 3]
+      responses:
+        '200':
+          description: Módulos actualizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaModulosRol' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` o `MODULO_INEXISTENTE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`ROL_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ------------------------------------------------------------------
+  # EJEMPLO
+  # ------------------------------------------------------------------
+  /ejemplo/publico:
+    get:
+      tags: [Ejemplo]
+      summary: Ruta abierta
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/Mensaje' }
+  /ejemplo/protegido:
+    get:
+      tags: [Ejemplo]
+      summary: Ruta que exige token
+      responses:
+        '200': { $ref: '#/components/responses/Mensaje' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+  /ejemplo/solo-admin:
+    get:
+      tags: [Ejemplo]
+      summary: Ruta solo para el rol administrador
+      responses:
+        '200': { $ref: '#/components/responses/Mensaje' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+  /ejemplo/error:
+    get:
+      tags: [Ejemplo]
+      summary: Falla a propósito (para ver el formato de error)
+      security: []
+      responses:
+        '500':
+          description: '`ERROR_INTERNO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    token:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: El token que devuelve el login. Dura 2 horas.
+
+  parameters:
+    IdInterno:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, example: 1 }
+
+  responses:
+    SolicitudInvalida:
+      description: Faltan datos o el JSON está mal armado (`DATOS_INCOMPLETOS`, `JSON_INVALIDO`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    IdInvalido:
+      description: '`ID_INVALIDO`: el id no es un entero mayor a cero'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoAutenticado:
+      description: '`TOKEN_FALTANTE`, `TOKEN_INVALIDO` o `TOKEN_VENCIDO` (hay que volver a loguearse)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    SinPermiso:
+      description: '`SIN_PERMISO` (el rol no alcanza) o `MODULO_SIN_ACCESO` (el rol no tiene el módulo)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternoNoEncontrado:
+      description: '`INTERNO_NO_ENCONTRADO`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    DniDuplicado:
+      description: '`DNI_DUPLICADO`: ya hay un interno activo con ese DNI'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Mensaje:
+      description: Respuesta con un mensaje
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok: { type: boolean, example: true }
+              mensaje: { type: string }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        ok: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            codigo: { type: string, example: TOKEN_FALTANTE }
+            mensaje: { type: string, example: Falta el token de acceso }
+
+    UsuarioSesion:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        nombreUsuario: { type: string, example: admin }
+        rol: { type: string, example: administrador }
+        modulos:
+          type: array
+          description: Nombres de los módulos del rol, para armar el menú
+          items: { type: string }
+          example: [internos, cobranzas, reportes]
+
+    ItemCatalogo:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        nombre: { type: string, example: activo }
+
+    ModuloNombre:
+      type: object
+      required: [nombre]
+      properties:
+        nombre: { type: string, maxLength: 40, example: reportes }
+
+    RespuestaModulo:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        modulo: { $ref: '#/components/schemas/ItemCatalogo' }
+
+    RespuestaModulosRol:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        rol: { type: string, example: operador }
+        modulos:
+          type: array
+          items: { $ref: '#/components/schemas/ItemCatalogo' }
+
+    Contacto:
+      type: object
+      description: Necesita nombre y al menos un teléfono o un email.
+      required: [nombre]
+      properties:
+        nombre: { type: string, example: Maria Perez }
+        parentesco: { type: string, nullable: true, example: madre }
+        telefono: { type: string, nullable: true, example: '1155556666' }
+        email: { type: string, format: email, nullable: true, example: null }
+
+    ContactoGuardado:
+      allOf:
+        - type: object
+          properties:
+            id: { type: integer, example: 1 }
+        - $ref: '#/components/schemas/Contacto'
+
+    Legajo:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        numero: { type: string, example: LEG-20261002-0001 }
+        fecha_apertura: { type: string, example: '2026-10-02 23:15:02' }
+
+    InternoAlta:
+      type: object
+      required: [dni, apellido, nombre, contactos]
+      properties:
+        dni: { type: string, pattern: '^\d{7,8}$', example: '30111222' }
+        apellido: { type: string, example: Perez }
+        nombre: { type: string, example: Juan }
+        fecha_nacimiento: { type: string, format: date, nullable: true, example: '1990-05-12' }
+        judicializado: { type: integer, enum: [0, 1], default: 0, example: 1 }
+        datos_salud: { type: string, nullable: true, example: hipertenso }
+        obra_social_id: { type: integer, nullable: true, example: 3 }
+        fecha_ingreso:
+          type: string
+          format: date
+          description: Opcional, si no viene es la fecha del día. No puede ser futura.
+          example: '2026-09-22'
+        contactos:
+          type: array
+          minItems: 2
+          items: { $ref: '#/components/schemas/Contacto' }
+
+    InternoModificacion:
+      type: object
+      description: Todos los campos son opcionales, pero tiene que venir al menos uno.
+      properties:
+        dni: { type: string, pattern: '^\d{7,8}$', example: '30111222' }
+        apellido: { type: string, example: Pérez }
+        nombre: { type: string, example: Juan }
+        fecha_nacimiento: { type: string, format: date, nullable: true, example: '1990-05-12' }
+        judicializado: { type: integer, enum: [0, 1], example: 0 }
+        datos_salud: { type: string, nullable: true, example: hipertenso }
+        obra_social_id: { type: integer, nullable: true, example: 2 }
+        contactos:
+          type: array
+          minItems: 2
+          description: Si viene, reemplaza a todos los contactos anteriores.
+          items: { $ref: '#/components/schemas/Contacto' }
+        fecha_ingreso:
+          type: string
+          format: date
+          description: No se modifica. Solo se acepta con el mismo valor que ya tiene.
+        legajo:
+          type: string
+          description: No se modifica. Solo se acepta si es uno de los legajos del interno.
+
+    InternoPadron:
+      type: object
+      properties:
+        id: { type: integer, example: 3 }
+        dni: { type: string, example: '28999000' }
+        apellido: { type: string, example: Núñez }
+        nombre: { type: string, example: Ángel }
+        legajo: { type: string, nullable: true, description: Último legajo abierto, example: LEG-20261002-0003 }
+        estado: { type: string, example: activo }
+        judicializado: { type: integer, enum: [0, 1], example: 0 }
+        fecha_ingreso: { type: string, example: '2026-10-02' }
+        tiene_deuda:
+          type: boolean
+          description: Saldo pendiente en alguna cuota vencida que no esté anulada
+          example: false
+
+    InternoFicha:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        dni: { type: string, example: '30111222' }
+        apellido: { type: string, example: Pérez }
+        nombre: { type: string, example: Juan }
+        fecha_nacimiento: { type: string, nullable: true, example: '1990-05-12' }
+        judicializado: { type: integer, enum: [0, 1], example: 1 }
+        datos_salud: { type: string, nullable: true, example: hipertenso }
+        fecha_ingreso: { type: string, example: '2026-10-02' }
+        creado_por: { type: integer, nullable: true, example: 1 }
+        creado_en: { type: string, example: '2026-10-02 23:15:02' }
+        modificado_por: { type: integer, nullable: true, description: Usuario de la última modificación, example: 1 }
+        modificado_en: { type: string, nullable: true, description: Fecha y hora de la última modificación, example: '2026-10-03 14:20:00' }
+        estado: { type: string, example: activo }
+        obra_social_id: { type: integer, nullable: true, example: 2 }
+        obra_social: { type: string, nullable: true, example: PAMI }
+        legajos:
+          type: array
+          items: { $ref: '#/components/schemas/Legajo' }
+        contactos:
+          type: array
+          items: { $ref: '#/components/schemas/ContactoGuardado' }
+
+    InternoFichaCompleta:
+      allOf:
+        - $ref: '#/components/schemas/InternoFicha'
+        - type: object
+          properties:
+            historial:
+              type: array
+              description: Cambios de estado, del más viejo al más nuevo
+              items:
+                type: object
+                properties:
+                  id: { type: integer, example: 1 }
+                  estado: { type: string, example: activo }
+                  fecha: { type: string, example: '2026-10-02 23:15:02' }
+                  motivo: { type: string, nullable: true, example: null }
+                  usuario: { type: string, nullable: true, description: Nombre de quien hizo el cambio, example: Administrador de prueba }
