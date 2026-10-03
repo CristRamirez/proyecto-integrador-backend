@@ -106,6 +106,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/internos/:id`       | módulo `internos`     | Ficha completa del interno con historial (BS-4) |
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 | PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
+| POST   | `/api/internos/:id/baja`  | módulo `internos`     | Baja lógica del interno con motivo y fecha (BS-6)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -341,6 +342,37 @@ Errores propios de la modificación (además de los del alta):
 | 400 `CAMPO_NO_MODIFICABLE` | se intentó cambiar la fecha de ingreso o el legajo |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
 | 409 `DNI_DUPLICADO` | el DNI nuevo ya lo tiene otro **interno activo** |
+
+### Baja de interno (BS-6)
+
+```
+POST /api/internos/1/baja
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "motivo": "Alta médica",
+  "fecha_egreso": "2026-10-03"
+}
+```
+
+Los dos campos son obligatorios. La baja es **lógica**: el registro no se borra, el interno
+pasa al estado `egresado` y deja de aparecer al filtrar por `estado=activo`. El cambio
+queda asentado en el historial de estados con el motivo y la fecha de egreso, además de
+quién lo hizo. Responde 200 con la ficha completa, igual que el `GET /api/internos/:id`.
+
+Dos consecuencias para tener en cuenta: el DNI queda libre para una nueva alta (RN6, el DNI
+es único solo entre los activos) y, cuando esté BS-7, a los egresados no se les generan
+cuotas nuevas.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id no es un entero mayor a cero |
+| 400 `DATOS_INCOMPLETOS` | falta el motivo o la fecha de egreso |
+| 400 `MOTIVO_INVALIDO` | el motivo supera los 500 caracteres |
+| 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD, es futura o es anterior al ingreso |
+| 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
+| 409 `INTERNO_YA_EGRESADO` | el interno ya estaba dado de baja |
 
 ## Documentación para el front (Swagger)
 

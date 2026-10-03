@@ -337,6 +337,54 @@ paths:
         '404': { $ref: '#/components/responses/InternoNoEncontrado' }
         '409': { $ref: '#/components/responses/DniDuplicado' }
 
+  /internos/{id}/baja:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+    post:
+      tags: [Internos]
+      summary: Baja de interno (BS-6)
+      description: |
+        Baja **lógica**: el registro no se borra. El interno pasa al estado `egresado`, deja de
+        aparecer al filtrar por `estado=activo` y el cambio queda asentado en su historial de
+        estados con el motivo, la fecha de egreso y quién lo hizo.
+
+        `motivo` y `fecha_egreso` son obligatorios. La fecha no puede ser futura ni anterior a
+        la fecha de ingreso del interno.
+
+        Después de la baja el DNI queda libre para una nueva alta, porque es único solo entre
+        los internos activos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternoBaja' }
+            example:
+              motivo: Alta médica
+              fecha_egreso: '2026-10-03'
+      responses:
+        '200':
+          description: Interno dado de baja, devuelve la ficha completa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno: { $ref: '#/components/schemas/InternoFichaCompleta' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` (falta el motivo o la fecha), `MOTIVO_INVALIDO` o `FECHA_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+        '409':
+          description: '`INTERNO_YA_EGRESADO`: el interno ya estaba dado de baja'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   # ------------------------------------------------------------------
   # CATÁLOGOS
   # ------------------------------------------------------------------
@@ -778,6 +826,21 @@ components:
         legajo:
           type: string
           description: No se modifica. Solo se acepta si es uno de los legajos del interno.
+
+    InternoBaja:
+      type: object
+      required: [motivo, fecha_egreso]
+      properties:
+        motivo:
+          type: string
+          maxLength: 500
+          description: Por qué egresa. Queda guardado en el historial de estados.
+          example: Alta médica
+        fecha_egreso:
+          type: string
+          format: date
+          description: No puede ser futura ni anterior a la fecha de ingreso del interno.
+          example: '2026-10-03'
 
     InternoPadron:
       type: object
