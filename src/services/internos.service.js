@@ -147,13 +147,16 @@ async function agregarContactos(internoId, contactos) {
 
 // Cada cambio de estado deja una fila en el historial (RN10). En el alta el
 // motivo va vacío; en la baja es obligatorio.
-async function registrarEstado(internoId, estadoId, usuarioId, motivo = null) {
-  await db().insert(historialEstados).values({
-    interno_id: internoId,
-    estado_id: estadoId,
-    usuario_id: usuarioId ?? null,
-    motivo,
-  });
+async function registrarEstado(internoId, estadoId, usuarioId, motivo = null, fecha = null) {
+  await db()
+    .insert(historialEstados)
+    .values({
+      interno_id: internoId,
+      estado_id: estadoId,
+      usuario_id: usuarioId ?? null,
+      motivo,
+      ...(fecha ? { fecha } : {}),
+    });
 }
 
 // Guarda los datos que cambiaron y deja registrado quién y cuándo hizo la

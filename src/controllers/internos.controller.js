@@ -4,6 +4,8 @@ const legajos = require('../services/legajos.service');
 const catalogos = require('../services/catalogos.service');
 
 const ESTADO_INICIAL = 'activo';
+const ESTADO_BAJA = 'egresado';
+const MAXIMO_MOTIVO = 500;
 const MINIMO_CONTACTOS = 2;
 const POR_PAGINA = 20;
 const MAXIMO_POR_PAGINA = 100;
@@ -27,6 +29,10 @@ function esFecha(valor) {
 
 function hoy() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function horaActual() {
+  return new Date().toISOString().slice(11, 19);
 }
 
 function leerDni(valor) {
@@ -290,6 +296,72 @@ async function verificarDni(req, res) {
   res.json({ ok: true, duplicado: Boolean(interno), interno });
 }
 
+function leerMotivo(valor) {
+  const motivo = texto(valor);
+
+  if (!motivo) {
+    throw ApiError.solicitudInvalida('El motivo de la baja es obligatorio', 'DATOS_INCOMPLETOS');
+  }
+
+  if (motivo.length > MAXIMO_MOTIVO) {
+    throw ApiError.solicitudInvalida(
+      `El motivo no puede superar los ${MAXIMO_MOTIVO} caracteres`,
+      'MOTIVO_INVALIDO'
+    );
+  }
+
+  return motivo;
+}
+
+function leerFechaEgreso(valor, fechaIngreso) {
+  const fecha = texto(valor);
+
+  if (!fecha) {
+    throw ApiError.solicitudInvalida('La fecha de egreso es obligatoria', 'DATOS_INCOMPLETOS');
+  }
+
+  if (!esFecha(fecha)) {
+    throw ApiError.solicitudInvalida('La fecha de egreso tiene que tener el formato AAAA-MM-DD', 'FECHA_INVALIDA');
+  }
+
+  if (fecha > hoy()) {
+    throw ApiError.solicitudInvalida('La fecha de egreso no puede ser futura', 'FECHA_INVALIDA');
+  }
+
+  if (fechaIngreso && fecha < fechaIngreso) {
+    throw ApiError.solicitudInvalida('La fecha de egreso no puede ser anterior a la de ingreso', 'FECHA_INVALIDA');
+  }
+
+  return fecha;
+}
+
+async function baja(req, res) {
+  const id = leerIdInterno(req.params.id);
+  const cuerpo = req.body || {};
+  const actual = await internos.obtenerFichaBasica(id);
+
+  if (!actual) {
+    throw ApiError.noEncontrado('El interno no existe', 'INTERNO_NO_ENCONTRADO');
+  }
+
+  if (actual.estado === ESTADO_BAJA) {
+    throw new ApiError(409, 'El interno ya está dado de baja', 'INTERNO_YA_EGRESADO');
+  }
+
+  const motivo = leerMotivo(cuerpo.motivo);
+  const fechaEgreso = leerFechaEgreso(cuerpo.fecha_egreso, actual.fecha_ingreso);
+  const estado = await catalogos.buscarEstadoPorNombre(ESTADO_BAJA);
+
+  if (!estado) {
+    throw new ApiError(500, 'Falta el estado egresado en la base de datos', 'ESTADO_BAJA_FALTANTE');
+  }
+
+  await internos.actualizar(id, { estado_id: estado.id }, req.usuario.id);
+  await internos.registrarEstado(id, estado.id, req.usuario.id, motivo, `${fechaEgreso} ${horaActual()}`);
+
+  res.json({ ok: true, interno: await internos.obtenerFicha(id) });
+}
+
 function viene(cuerpo, campo) {
   return Object.prototype.hasOwnProperty.call(cuerpo, campo);
 }
@@ -376,4 +448,4 @@ async function modificar(req, res) {
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });
 }
 
-module.exports = { alta, listar, verificarDni, ficha, modificar };
+module.exports = { alta, listar, verificarDni, ficha, modificar, baja };
