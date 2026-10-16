@@ -209,4 +209,34 @@ async function registrar(req, res) {
   });
 }
 
-module.exports = { registrar };
+function leerIdInterno(valor) {
+  const id = Number(valor);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    throw ApiError.solicitudInvalida('El id del interno no es válido', 'ID_INVALIDO');
+  }
+
+  return id;
+}
+
+// GET /api/internos/:id/cuenta-corriente
+// El interés aplicado viene en cero hasta que se haga el cálculo de la mora
+// (BS-11); cuando se haga, se muestra solo. Las cuotas anuladas se listan pero
+// no suman al total adeudado.
+async function cuentaCorriente(req, res) {
+  const id = leerIdInterno(req.params.id);
+  const interno = await pagos.buscarInterno(id);
+
+  if (!interno) {
+    throw ApiError.noEncontrado('El interno no existe', 'INTERNO_NO_ENCONTRADO');
+  }
+
+  const cuotasDelInterno = await pagos.listarCuentaCorriente(id);
+  const totalAdeudado = cuotasDelInterno
+    .filter((cuota) => cuota.estado !== ESTADO_ANULADA)
+    .reduce((total, cuota) => centavos(total + cuota.saldo_pendiente), 0);
+
+  res.json({ ok: true, interno, cuotas: cuotasDelInterno, total_adeudado: totalAdeudado });
+}
+
+module.exports = { registrar, cuentaCorriente };

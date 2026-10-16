@@ -112,6 +112,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
 | POST   | `/api/cuotas/generar`     | módulo `cobranzas`    | Genera las cuotas del período (BS-7)            |
 | POST   | `/api/cuotas/:id/pagos`   | módulo `cobranzas`    | Registra un pago total o parcial de la cuota (BS-8)|
+| GET    | `/api/internos/:id/cuenta-corriente` | módulos `internos` y `cobranzas` | Cuotas, pagos y total adeudado del interno (BS-9)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -510,6 +511,48 @@ comparar. Responde 201 con la cuota actualizada y todos los pagos que tiene apli
 | 404 `CUOTA_NO_ENCONTRADA` | no existe una cuota con ese id |
 | 409 `CUOTA_ANULADA` | la cuota está anulada |
 | 409 `CUOTA_SIN_SALDO` | la cuota ya está pagada |
+
+### Cuenta corriente del interno (BS-9)
+
+```
+GET /api/internos/1/cuenta-corriente
+Authorization: Bearer <token>
+```
+
+Cuelga del interno porque se abre desde su ficha, pero muestra datos de cobranzas: el rol
+necesita tener los dos módulos, `internos` y `cobranzas`. Lista todas las cuotas del interno,
+de la más vieja a la más nueva, cada una con los pagos que tiene aplicados y su saldo:
+
+```json
+{
+  "ok": true,
+  "interno": { "id": 1, "dni": "30111222", "apellido": "Pérez", "nombre": "Juan" },
+  "cuotas": [
+    {
+      "id": 12, "interno_id": 1, "periodo": "2026-10", "valor_base": 18000,
+      "interes_aplicado": 0, "total": 18000, "saldo_pendiente": 9000,
+      "estado": "parcial", "fecha_vencimiento": "2026-10-10",
+      "pagos": [
+        {
+          "id": 3, "monto": 9000, "fecha_pago": "2026-10-20 14:05:11", "medio_pago": "efectivo",
+          "numero_comprobante": "0001-00012345", "observaciones": "pago parcial",
+          "registrado_por": "Administrador de prueba"
+        }
+      ]
+    }
+  ],
+  "total_adeudado": 9000
+}
+```
+
+`total_adeudado` es la suma de los saldos de las cuotas que no están anuladas. Un interno sin
+cuotas devuelve la lista vacía y el total en cero. `interes_aplicado` viene en cero hasta que
+se haga el cálculo de la mora (BS-11).
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id del interno no es un entero mayor a cero |
+| 404 `INTERNO_NO_ENCONTRADO` | no existe un interno con ese id |
 
 ## Documentación para el front (Swagger)
 

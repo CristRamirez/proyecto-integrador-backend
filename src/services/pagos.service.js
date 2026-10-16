@@ -1,6 +1,6 @@
 const { asc, eq } = require('drizzle-orm');
 const { db } = require('../db/d1');
-const { cuotas, estadosCuota, mediosPago, pagos, usuarios } = require('../db/schema');
+const { cuotas, estadosCuota, internos, mediosPago, pagos, usuarios } = require('../db/schema');
 
 const COLUMNAS_CUOTA = {
   id: cuotas.id,
@@ -66,19 +66,21 @@ async function actualizarSaldo(cuotaId, saldo, estadoCuotaId) {
     .where(eq(cuotas.id, cuotaId));
 }
 
+const COLUMNAS_PAGO = {
+  id: pagos.id,
+  monto: pagos.monto,
+  fecha_pago: pagos.fecha_pago,
+  medio_pago: mediosPago.nombre,
+  numero_comprobante: pagos.numero_comprobante,
+  observaciones: pagos.observaciones,
+  registrado_por: usuarios.nombre_completo,
+};
+
 // El usuario va con leftJoin porque puede ser NULL, igual que en el historial
 // de estados del interno.
 async function listarPorCuota(cuotaId) {
   return db()
-    .select({
-      id: pagos.id,
-      monto: pagos.monto,
-      fecha_pago: pagos.fecha_pago,
-      medio_pago: mediosPago.nombre,
-      numero_comprobante: pagos.numero_comprobante,
-      observaciones: pagos.observaciones,
-      registrado_por: usuarios.nombre_completo,
-    })
+    .select(COLUMNAS_PAGO)
     .from(pagos)
     .innerJoin(mediosPago, eq(mediosPago.id, pagos.medio_pago_id))
     .leftJoin(usuarios, eq(usuarios.id, pagos.usuario_id))
@@ -86,4 +88,50 @@ async function listarPorCuota(cuotaId) {
     .orderBy(asc(pagos.fecha_pago), asc(pagos.id));
 }
 
-module.exports = { obtenerCuota, buscarMedioPago, crear, actualizarSaldo, listarPorCuota };
+async function buscarInterno(internoId) {
+  const [fila] = await db()
+    .select({ id: internos.id, dni: internos.dni, apellido: internos.apellido, nombre: internos.nombre })
+    .from(internos)
+    .where(eq(internos.id, internoId))
+    .limit(1);
+
+  return fila || null;
+}
+
+// Cuenta corriente (BS-9): las cuotas del interno, de la más vieja a la más
+// nueva, cada una con sus pagos. Los pagos se traen todos juntos en una sola
+// consulta y se reparten por cuota, en vez de hacer una consulta por cuota.
+async function listarCuentaCorriente(internoId) {
+  const filas = await db()
+    .select(COLUMNAS_CUOTA)
+    .from(cuotas)
+    .innerJoin(estadosCuota, eq(estadosCuota.id, cuotas.estado_cuota_id))
+    .where(eq(cuotas.interno_id, internoId))
+    .orderBy(asc(cuotas.periodo_anio), asc(cuotas.periodo_mes));
+
+  const pagosDelInterno = await db()
+    .select({ ...COLUMNAS_PAGO, cuota_id: pagos.cuota_id })
+    .from(pagos)
+    .innerJoin(cuotas, eq(cuotas.id, pagos.cuota_id))
+    .innerJoin(mediosPago, eq(mediosPago.id, pagos.medio_pago_id))
+    .leftJoin(usuarios, eq(usuarios.id, pagos.usuario_id))
+    .where(eq(cuotas.interno_id, internoId))
+    .orderBy(asc(pagos.fecha_pago), asc(pagos.id));
+
+  return filas.map((fila) => ({
+    ...conPeriodo(fila),
+    pagos: pagosDelInterno
+      .filter((pago) => pago.cuota_id === fila.id)
+      .map(({ cuota_id, ...pago }) => pago),
+  }));
+}
+
+module.exports = {
+  obtenerCuota,
+  buscarMedioPago,
+  crear,
+  actualizarSaldo,
+  listarPorCuota,
+  buscarInterno,
+  listarCuentaCorriente,
+};

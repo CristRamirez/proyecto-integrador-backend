@@ -389,6 +389,51 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /internos/{id}/cuenta-corriente:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+    get:
+      tags: [Cobranzas]
+      summary: Cuenta corriente del interno (BS-9)
+      description: |
+        Todas las cuotas del interno, de la más vieja a la más nueva, con los pagos aplicados
+        y el saldo de cada una, más el total adeudado (suma de los saldos de las cuotas que no
+        están anuladas). Un interno sin cuotas devuelve la lista vacía y el total en cero.
+
+        El rol necesita los módulos `internos` y `cobranzas`. `interes_aplicado` viene en cero
+        hasta que se haga el cálculo de la mora (BS-11).
+      responses:
+        '200':
+          description: La cuenta corriente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno:
+                    type: object
+                    properties:
+                      id: { type: integer, example: 1 }
+                      dni: { type: string, example: '30111222' }
+                      apellido: { type: string, example: Pérez }
+                      nombre: { type: string, example: Juan }
+                  cuotas:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Cuota'
+                        - type: object
+                          properties:
+                            pagos:
+                              type: array
+                              items: { $ref: '#/components/schemas/Pago' }
+                  total_adeudado: { type: number, format: float, example: 9000 }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+
   # ------------------------------------------------------------------
   # PARÁMETROS DE COBRANZA
   # ------------------------------------------------------------------
