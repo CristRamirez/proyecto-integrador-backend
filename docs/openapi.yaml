@@ -28,6 +28,10 @@ tags:
     description: ABM de módulos (solo rol administrador)
   - name: Roles
     description: Permisos de cada rol (solo rol administrador)
+  - name: Parámetros
+    description: Valores con los que se generan las cuotas (solo rol administrador)
+  - name: Cobranzas
+    description: Cuotas, pagos y egresos
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -385,6 +389,231 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /internos/{id}/cuenta-corriente:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+    get:
+      tags: [Cobranzas]
+      summary: Cuenta corriente del interno (BS-9)
+      description: |
+        Todas las cuotas del interno, de la más vieja a la más nueva, con los pagos aplicados
+        y el saldo de cada una, más el total adeudado (suma de los saldos de las cuotas que no
+        están anuladas). Un interno sin cuotas devuelve la lista vacía y el total en cero.
+
+        El rol necesita los módulos `internos` y `cobranzas`. `interes_aplicado` viene en cero
+        hasta que se haga el cálculo de la mora (BS-11).
+      responses:
+        '200':
+          description: La cuenta corriente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno:
+                    type: object
+                    properties:
+                      id: { type: integer, example: 1 }
+                      dni: { type: string, example: '30111222' }
+                      apellido: { type: string, example: Pérez }
+                      nombre: { type: string, example: Juan }
+                  cuotas:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Cuota'
+                        - type: object
+                          properties:
+                            pagos:
+                              type: array
+                              items: { $ref: '#/components/schemas/Pago' }
+                  total_adeudado: { type: number, format: float, example: 9000 }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+
+  # ------------------------------------------------------------------
+  # PARÁMETROS DE COBRANZA
+  # ------------------------------------------------------------------
+  /parametros:
+    get:
+      tags: [Parámetros]
+      summary: Parámetros de cobranza vigentes (BS-13)
+      description: Devuelve la configuración marcada como actual, o null si todavía no se cargó ninguna.
+      responses:
+        '200':
+          description: La configuración vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  configuracion:
+                    nullable: true
+                    allOf: [{ $ref: '#/components/schemas/ConfiguracionCuota' }]
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+    post:
+      tags: [Parámetros]
+      summary: Guardar parámetros de cobranza (BS-13)
+      description: |
+        Nunca edita la configuración vigente: crea una fila nueva marcada como actual y archiva
+        la anterior, que queda en el histórico con su fecha. Rige desde que se guarda.
+
+        Las cuotas ya generadas no se modifican de forma retroactiva: cada una guarda con qué
+        configuración se emitió y copia sus valores.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ParametrosNuevos' }
+            example:
+              valor_cuota: 18000
+              valor_mora: 800
+              dia_vencimiento: 15
+              observaciones: Aumento de noviembre
+      responses:
+        '201':
+          description: Configuración guardada, ya vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  configuracion: { $ref: '#/components/schemas/ConfiguracionCuota' }
+        '400':
+          description: '`DATOS_INCOMPLETOS`, `MONTO_INVALIDO`, `DIA_INVALIDO` u `OBSERVACIONES_INVALIDAS`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /parametros/historico:
+    get:
+      tags: [Parámetros]
+      summary: Histórico de parámetros de cobranza (BS-13)
+      description: Todas las configuraciones, de la más nueva a la más vieja, con quién definió cada una.
+      responses:
+        '200':
+          description: El histórico completo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  configuraciones:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConfiguracionCuota' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  # ------------------------------------------------------------------
+  # COBRANZAS
+  # ------------------------------------------------------------------
+  /cuotas/generar:
+    post:
+      tags: [Cobranzas]
+      summary: Generación de cuotas del período (BS-7)
+      description: |
+        Crea una cuota por cada interno activo que todavía no tenga la del período, con el valor
+        de la configuración vigente (BS-13). Si no hay parámetros cargados corta con 409.
+
+        Es seguro correrlo dos veces: los internos que ya tienen la cuota del período se omiten.
+        Los dados de baja no entran. La fecha de vencimiento sale del día configurado y se ajusta
+        al último día del mes cuando no existe (día 31 en febrero vence el 28).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PeriodoCuotas' }
+            example: { anio: 2026, mes: 11 }
+      responses:
+        '200':
+          description: Resultado de la corrida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoGeneracion' }
+        '400':
+          description: '`DATOS_INCOMPLETOS` o `PERIODO_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409':
+          description: '`SIN_PARAMETROS`: no hay parámetros de cobranza cargados'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /cuotas/{id}/pagos:
+    parameters:
+      - $ref: '#/components/parameters/IdCuota'
+    post:
+      tags: [Cobranzas]
+      summary: Registro de pago total o parcial (BS-8)
+      description: |
+        Aplica un pago a la cuota, descuenta el monto del saldo y recalcula el estado: si el
+        saldo queda en cero pasa a `pagada`, si no a `parcial`. No admite montos mayores al
+        saldo pendiente. Los importes se redondean a centavos.
+
+        Si el medio de pago es **obra social**, `obra_social_id` es obligatorio. Mientras la
+        tabla de pagos no tenga columna propia, la obra social queda escrita al principio de
+        las observaciones.
+
+        Si no viene `fecha_pago` se toma la de hoy. No puede ser futura.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagoNuevo' }
+            example:
+              medio_pago_id: 1
+              monto: 9000
+              fecha_pago: '2026-10-20'
+              numero_comprobante: 0001-00012345
+              observaciones: pago parcial
+      responses:
+        '201':
+          description: Pago registrado; devuelve la cuota actualizada y sus pagos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  cuota: { $ref: '#/components/schemas/Cuota' }
+                  pagos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Pago' }
+        '400':
+          description: |
+            `ID_INVALIDO`, `DATOS_INCOMPLETOS`, `MONTO_INVALIDO`, `MONTO_MAYOR_AL_SALDO`,
+            `MEDIO_PAGO_INEXISTENTE`, `OBRA_SOCIAL_REQUERIDA`, `OBRA_SOCIAL_INEXISTENTE`,
+            `FECHA_INVALIDA`, `COMPROBANTE_INVALIDO` u `OBSERVACIONES_INVALIDAS`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`CUOTA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`CUOTA_ANULADA` o `CUOTA_SIN_SALDO` (la cuota ya está pagada)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   # ------------------------------------------------------------------
   # CATÁLOGOS
   # ------------------------------------------------------------------
@@ -666,6 +895,11 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1, example: 1 }
+    IdCuota:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, example: 12 }
 
   responses:
     SolicitudInvalida:
@@ -841,6 +1075,104 @@ components:
           format: date
           description: No puede ser futura ni anterior a la fecha de ingreso del interno.
           example: '2026-10-03'
+
+    ParametrosNuevos:
+      type: object
+      required: [valor_cuota, dia_vencimiento]
+      properties:
+        valor_cuota: { type: number, format: float, minimum: 0, example: 18000 }
+        valor_mora:
+          type: number
+          format: float
+          minimum: 0
+          default: 0
+          description: Interés por pago fuera de término.
+          example: 800
+        dia_vencimiento: { type: integer, minimum: 1, maximum: 31, example: 15 }
+        observaciones: { type: string, maxLength: 500, nullable: true, example: Aumento de noviembre }
+
+    ConfiguracionCuota:
+      type: object
+      properties:
+        id: { type: integer, example: 2 }
+        valor_cuota: { type: number, format: float, example: 18000 }
+        valor_mora: { type: number, format: float, example: 800 }
+        dia_vencimiento: { type: integer, example: 15 }
+        es_actual: { type: integer, enum: [0, 1], example: 1 }
+        observaciones: { type: string, nullable: true, example: Aumento de noviembre }
+        creado_en:
+          type: string
+          description: Desde cuándo rige esta configuración.
+          example: '2026-10-16 17:33:12'
+        definido_por: { type: string, nullable: true, example: Administrador de prueba }
+
+    PeriodoCuotas:
+      type: object
+      required: [anio, mes]
+      properties:
+        anio: { type: integer, minimum: 2020, maximum: 2100, example: 2026 }
+        mes: { type: integer, minimum: 1, maximum: 12, example: 11 }
+
+    ResultadoGeneracion:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        periodo:
+          type: object
+          properties:
+            anio: { type: integer, example: 2026 }
+            mes: { type: integer, example: 11 }
+        valor_cuota: { type: number, format: float, example: 18000 }
+        fecha_vencimiento: { type: string, format: date, example: '2026-11-30' }
+        internos_activos: { type: integer, example: 3 }
+        creadas: { type: integer, example: 2 }
+        omitidas: { type: integer, description: Ya tenían la cuota del período, example: 1 }
+
+    PagoNuevo:
+      type: object
+      required: [medio_pago_id, monto]
+      properties:
+        medio_pago_id: { type: integer, description: 'Del catálogo medios_pago', example: 1 }
+        monto:
+          type: number
+          format: float
+          description: Mayor a cero y como máximo el saldo pendiente de la cuota.
+          example: 9000
+        fecha_pago:
+          type: string
+          format: date
+          description: Por defecto hoy. No puede ser futura.
+          example: '2026-10-20'
+        numero_comprobante: { type: string, maxLength: 50, nullable: true, example: 0001-00012345 }
+        observaciones: { type: string, maxLength: 500, nullable: true, example: pago parcial }
+        obra_social_id:
+          type: integer
+          description: Obligatorio solo si el medio de pago es obra social.
+          example: 2
+
+    Cuota:
+      type: object
+      properties:
+        id: { type: integer, example: 12 }
+        interno_id: { type: integer, example: 1 }
+        periodo: { type: string, description: AAAA-MM, example: 2026-10 }
+        valor_base: { type: number, format: float, example: 18000 }
+        interes_aplicado: { type: number, format: float, example: 0 }
+        total: { type: number, format: float, example: 18000 }
+        saldo_pendiente: { type: number, format: float, example: 9000 }
+        estado: { type: string, enum: [pendiente, pagada, parcial, vencida, anulada], example: parcial }
+        fecha_vencimiento: { type: string, format: date, example: '2026-10-10' }
+
+    Pago:
+      type: object
+      properties:
+        id: { type: integer, example: 3 }
+        monto: { type: number, format: float, example: 9000 }
+        fecha_pago: { type: string, example: '2026-10-20 14:05:11' }
+        medio_pago: { type: string, example: efectivo }
+        numero_comprobante: { type: string, nullable: true, example: 0001-00012345 }
+        observaciones: { type: string, nullable: true, example: pago parcial }
+        registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }
 
     InternoPadron:
       type: object

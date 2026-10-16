@@ -107,6 +107,12 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 | PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
 | POST   | `/api/internos/:id/baja`  | módulo `internos`     | Baja lógica del interno con motivo y fecha (BS-6)|
+| GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
+| GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
+| POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
+| POST   | `/api/cuotas/generar`     | módulo `cobranzas`    | Genera las cuotas del período (BS-7)            |
+| POST   | `/api/cuotas/:id/pagos`   | módulo `cobranzas`    | Registra un pago total o parcial de la cuota (BS-8)|
+| GET    | `/api/internos/:id/cuenta-corriente` | módulos `internos` y `cobranzas` | Cuotas, pagos y total adeudado del interno (BS-9)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -373,6 +379,180 @@ cuotas nuevas.
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD, es futura o es anterior al ingreso |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
 | 409 `INTERNO_YA_EGRESADO` | el interno ya estaba dado de baja |
+
+### Parámetros de cobranza (BS-13)
+
+```
+POST /api/parametros
+Authorization: Bearer <token>
+
+{
+  "valor_cuota": 18000,
+  "valor_mora": 800,
+  "dia_vencimiento": 15,
+  "observaciones": "Aumento de noviembre"
+}
+```
+
+Guardar parámetros **nunca edita los vigentes**: se crea una fila nueva marcada como actual y
+la anterior queda archivada con su fecha. Rige desde el momento en que se guarda (`creado_en`).
+Las cuotas ya generadas no cambian, porque cada una guarda con qué configuración se emitió y
+copia sus valores. Solo el rol `administrador` accede a estos endpoints.
+
+`GET /api/parametros` devuelve la configuración vigente, o `null` si todavía no se cargó
+ninguna. `GET /api/parametros/historico` devuelve todas, de la más nueva a la más vieja, con
+el nombre de quién definió cada una.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta `valor_cuota` o `dia_vencimiento` |
+| 400 `MONTO_INVALIDO` | el valor de la cuota no es mayor a cero, o la mora es negativa |
+| 400 `DIA_INVALIDO` | el día de vencimiento no es un entero entre 1 y 31 |
+| 400 `OBSERVACIONES_INVALIDAS` | las observaciones superan los 500 caracteres |
+
+### Generación de cuotas del período (BS-7)
+
+```
+POST /api/cuotas/generar
+Authorization: Bearer <token>
+
+{ "anio": 2026, "mes": 11 }
+```
+
+Crea una cuota por cada interno **activo** que todavía no tenga la de ese período, con el
+valor de la configuración vigente (BS-13). Si no hay parámetros cargados corta con 409 y no
+genera nada. Es seguro correrlo dos veces: los internos que ya tienen la cuota del período se
+omiten, así que una segunda corrida solo alcanza a los que falten, por ejemplo a los que se
+dieron de alta en el medio.
+
+Los internos dados de baja no entran, porque la consulta filtra por estado activo. La fecha
+de vencimiento sale del día configurado y se ajusta al último día del mes cuando no existe:
+con día 31, febrero vence el 28.
+
+La respuesta informa el resultado de la corrida:
+
+```json
+{
+  "ok": true,
+  "periodo": { "anio": 2026, "mes": 11 },
+  "valor_cuota": 18000,
+  "fecha_vencimiento": "2026-11-30",
+  "internos_activos": 3,
+  "creadas": 2,
+  "omitidas": 1
+}
+```
+
+Cada cuota nace en estado `pendiente`, con `interes_aplicado` en cero, `total` igual al valor
+base y `saldo_pendiente` igual al total. Guarda además con qué configuración se emitió, así un
+cambio de valor posterior no la altera.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta `anio` o `mes` |
+| 400 `PERIODO_INVALIDO` | el año no está entre 2020 y 2100, o el mes entre 1 y 12 |
+| 409 `SIN_PARAMETROS` | no hay parámetros de cobranza cargados todavía |
+
+### Registro de pago total o parcial (BS-8)
+
+```
+POST /api/cuotas/12/pagos
+Authorization: Bearer <token>
+
+{
+  "medio_pago_id": 1,
+  "monto": 9000,
+  "fecha_pago": "2026-10-20",
+  "numero_comprobante": "0001-00012345",
+  "observaciones": "pago parcial"
+}
+```
+
+`medio_pago_id` y `monto` son obligatorios; el resto es opcional. Si no viene la fecha, el pago
+queda con la de hoy, y no puede ser futura. Los medios de pago son los de la tabla `medios_pago`:
+efectivo, transferencia, débito, cheque y obra social. Cuando el medio es **obra social** hay
+que mandar también `obra_social_id` con la obra social que paga; como la tabla `pagos` todavía
+no tiene columna para eso, se guarda al principio de las observaciones.
+
+Al guardar el pago se descuenta del saldo de la cuota y se recalcula su estado: si el saldo
+queda en cero pasa a `pagada`, si no a `parcial`. Los importes se redondean a centavos antes de
+comparar. Responde 201 con la cuota actualizada y todos los pagos que tiene aplicados:
+
+```json
+{
+  "ok": true,
+  "cuota": {
+    "id": 12, "interno_id": 1, "periodo": "2026-10", "valor_base": 18000,
+    "interes_aplicado": 0, "total": 18000, "saldo_pendiente": 9000,
+    "estado": "parcial", "fecha_vencimiento": "2026-10-10"
+  },
+  "pagos": [
+    {
+      "id": 3, "monto": 9000, "fecha_pago": "2026-10-20 14:05:11", "medio_pago": "efectivo",
+      "numero_comprobante": "0001-00012345", "observaciones": "pago parcial",
+      "registrado_por": "Administrador de prueba"
+    }
+  ]
+}
+```
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id de la cuota no es un entero mayor a cero |
+| 400 `DATOS_INCOMPLETOS` | falta `monto` o `medio_pago_id` |
+| 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
+| 400 `MONTO_MAYOR_AL_SALDO` | el monto supera el saldo pendiente (el mensaje dice cuánto es) |
+| 400 `MEDIO_PAGO_INEXISTENTE` | el medio de pago no está en el catálogo |
+| 400 `OBRA_SOCIAL_REQUERIDA` | el medio es obra social y no vino `obra_social_id` |
+| 400 `OBRA_SOCIAL_INEXISTENTE` | la obra social no existe |
+| 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD o es futura |
+| 400 `COMPROBANTE_INVALIDO` | el número de comprobante supera los 50 caracteres |
+| 400 `OBSERVACIONES_INVALIDAS` | las observaciones superan los 500 caracteres |
+| 404 `CUOTA_NO_ENCONTRADA` | no existe una cuota con ese id |
+| 409 `CUOTA_ANULADA` | la cuota está anulada |
+| 409 `CUOTA_SIN_SALDO` | la cuota ya está pagada |
+
+### Cuenta corriente del interno (BS-9)
+
+```
+GET /api/internos/1/cuenta-corriente
+Authorization: Bearer <token>
+```
+
+Cuelga del interno porque se abre desde su ficha, pero muestra datos de cobranzas: el rol
+necesita tener los dos módulos, `internos` y `cobranzas`. Lista todas las cuotas del interno,
+de la más vieja a la más nueva, cada una con los pagos que tiene aplicados y su saldo:
+
+```json
+{
+  "ok": true,
+  "interno": { "id": 1, "dni": "30111222", "apellido": "Pérez", "nombre": "Juan" },
+  "cuotas": [
+    {
+      "id": 12, "interno_id": 1, "periodo": "2026-10", "valor_base": 18000,
+      "interes_aplicado": 0, "total": 18000, "saldo_pendiente": 9000,
+      "estado": "parcial", "fecha_vencimiento": "2026-10-10",
+      "pagos": [
+        {
+          "id": 3, "monto": 9000, "fecha_pago": "2026-10-20 14:05:11", "medio_pago": "efectivo",
+          "numero_comprobante": "0001-00012345", "observaciones": "pago parcial",
+          "registrado_por": "Administrador de prueba"
+        }
+      ]
+    }
+  ],
+  "total_adeudado": 9000
+}
+```
+
+`total_adeudado` es la suma de los saldos de las cuotas que no están anuladas. Un interno sin
+cuotas devuelve la lista vacía y el total en cero. `interes_aplicado` viene en cero hasta que
+se haga el cálculo de la mora (BS-11).
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id del interno no es un entero mayor a cero |
+| 404 `INTERNO_NO_ENCONTRADO` | no existe un interno con ese id |
 
 ## Documentación para el front (Swagger)
 
