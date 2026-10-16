@@ -110,6 +110,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
 | GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
+| POST   | `/api/cuotas/generar`     | módulo `cobranzas`    | Genera las cuotas del período (BS-7)            |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -406,6 +407,49 @@ el nombre de quién definió cada una.
 | 400 `MONTO_INVALIDO` | el valor de la cuota no es mayor a cero, o la mora es negativa |
 | 400 `DIA_INVALIDO` | el día de vencimiento no es un entero entre 1 y 31 |
 | 400 `OBSERVACIONES_INVALIDAS` | las observaciones superan los 500 caracteres |
+
+### Generación de cuotas del período (BS-7)
+
+```
+POST /api/cuotas/generar
+Authorization: Bearer <token>
+
+{ "anio": 2026, "mes": 11 }
+```
+
+Crea una cuota por cada interno **activo** que todavía no tenga la de ese período, con el
+valor de la configuración vigente (BS-13). Si no hay parámetros cargados corta con 409 y no
+genera nada. Es seguro correrlo dos veces: los internos que ya tienen la cuota del período se
+omiten, así que una segunda corrida solo alcanza a los que falten, por ejemplo a los que se
+dieron de alta en el medio.
+
+Los internos dados de baja no entran, porque la consulta filtra por estado activo. La fecha
+de vencimiento sale del día configurado y se ajusta al último día del mes cuando no existe:
+con día 31, febrero vence el 28.
+
+La respuesta informa el resultado de la corrida:
+
+```json
+{
+  "ok": true,
+  "periodo": { "anio": 2026, "mes": 11 },
+  "valor_cuota": 18000,
+  "fecha_vencimiento": "2026-11-30",
+  "internos_activos": 3,
+  "creadas": 2,
+  "omitidas": 1
+}
+```
+
+Cada cuota nace en estado `pendiente`, con `interes_aplicado` en cero, `total` igual al valor
+base y `saldo_pendiente` igual al total. Guarda además con qué configuración se emitió, así un
+cambio de valor posterior no la altera.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta `anio` o `mes` |
+| 400 `PERIODO_INVALIDO` | el año no está entre 2020 y 2100, o el mes entre 1 y 12 |
+| 409 `SIN_PARAMETROS` | no hay parámetros de cobranza cargados todavía |
 
 ## Documentación para el front (Swagger)
 

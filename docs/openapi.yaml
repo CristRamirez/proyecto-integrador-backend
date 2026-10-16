@@ -30,6 +30,8 @@ tags:
     description: Permisos de cada rol (solo rol administrador)
   - name: Parámetros
     description: Valores con los que se generan las cuotas (solo rol administrador)
+  - name: Cobranzas
+    description: Cuotas, pagos y egresos
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -466,6 +468,45 @@ paths:
                     items: { $ref: '#/components/schemas/ConfiguracionCuota' }
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
+
+  # ------------------------------------------------------------------
+  # COBRANZAS
+  # ------------------------------------------------------------------
+  /cuotas/generar:
+    post:
+      tags: [Cobranzas]
+      summary: Generación de cuotas del período (BS-7)
+      description: |
+        Crea una cuota por cada interno activo que todavía no tenga la del período, con el valor
+        de la configuración vigente (BS-13). Si no hay parámetros cargados corta con 409.
+
+        Es seguro correrlo dos veces: los internos que ya tienen la cuota del período se omiten.
+        Los dados de baja no entran. La fecha de vencimiento sale del día configurado y se ajusta
+        al último día del mes cuando no existe (día 31 en febrero vence el 28).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PeriodoCuotas' }
+            example: { anio: 2026, mes: 11 }
+      responses:
+        '200':
+          description: Resultado de la corrida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoGeneracion' }
+        '400':
+          description: '`DATOS_INCOMPLETOS` o `PERIODO_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409':
+          description: '`SIN_PARAMETROS`: no hay parámetros de cobranza cargados'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ------------------------------------------------------------------
   # CATÁLOGOS
@@ -953,6 +994,28 @@ components:
           description: Desde cuándo rige esta configuración.
           example: '2026-10-16 17:33:12'
         definido_por: { type: string, nullable: true, example: Administrador de prueba }
+
+    PeriodoCuotas:
+      type: object
+      required: [anio, mes]
+      properties:
+        anio: { type: integer, minimum: 2020, maximum: 2100, example: 2026 }
+        mes: { type: integer, minimum: 1, maximum: 12, example: 11 }
+
+    ResultadoGeneracion:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        periodo:
+          type: object
+          properties:
+            anio: { type: integer, example: 2026 }
+            mes: { type: integer, example: 11 }
+        valor_cuota: { type: number, format: float, example: 18000 }
+        fecha_vencimiento: { type: string, format: date, example: '2026-11-30' }
+        internos_activos: { type: integer, example: 3 }
+        creadas: { type: integer, example: 2 }
+        omitidas: { type: integer, description: Ya tenían la cuota del período, example: 1 }
 
     InternoPadron:
       type: object
