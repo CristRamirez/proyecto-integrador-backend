@@ -112,8 +112,8 @@ const historialEstados = sqliteTable('historial_estados', {
 // ------------------------------------------------------------
 // COBRANZAS
 // ------------------------------------------------------------
-// Por ahora solo las tablas que lee el padrón (BS-3) para marcar a los
-// internos con deuda. El resto de cobranzas se suma cuando se haga el módulo.
+// Cuotas, parámetros y pagos. Los descuentos y los egresos todavía no están
+// descritos: se suman cuando alguna tarjeta los use.
 
 const estadosCuota = sqliteTable('estados_cuota', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -147,6 +147,23 @@ const cuotas = sqliteTable('cuotas', {
   creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
 });
 
+const mediosPago = sqliteTable('medios_pago', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  nombre: text('nombre').notNull(),
+});
+
+const pagos = sqliteTable('pagos', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  cuota_id: integer('cuota_id').notNull(),
+  medio_pago_id: integer('medio_pago_id').notNull(),
+  monto: real('monto').notNull(),
+  fecha_pago: text('fecha_pago').notNull().default(sql`(datetime('now'))`),
+  numero_comprobante: text('numero_comprobante'),
+  observaciones: text('observaciones'),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+});
+
 module.exports = {
   roles,
   usuarios,
@@ -161,4 +178,6 @@ module.exports = {
   estadosCuota,
   configuracionCuotas,
   cuotas,
+  mediosPago,
+  pagos,
 };

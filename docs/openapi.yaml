@@ -508,6 +508,67 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /cuotas/{id}/pagos:
+    parameters:
+      - $ref: '#/components/parameters/IdCuota'
+    post:
+      tags: [Cobranzas]
+      summary: Registro de pago total o parcial (BS-8)
+      description: |
+        Aplica un pago a la cuota, descuenta el monto del saldo y recalcula el estado: si el
+        saldo queda en cero pasa a `pagada`, si no a `parcial`. No admite montos mayores al
+        saldo pendiente. Los importes se redondean a centavos.
+
+        Si el medio de pago es **obra social**, `obra_social_id` es obligatorio. Mientras la
+        tabla de pagos no tenga columna propia, la obra social queda escrita al principio de
+        las observaciones.
+
+        Si no viene `fecha_pago` se toma la de hoy. No puede ser futura.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PagoNuevo' }
+            example:
+              medio_pago_id: 1
+              monto: 9000
+              fecha_pago: '2026-10-20'
+              numero_comprobante: 0001-00012345
+              observaciones: pago parcial
+      responses:
+        '201':
+          description: Pago registrado; devuelve la cuota actualizada y sus pagos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  cuota: { $ref: '#/components/schemas/Cuota' }
+                  pagos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Pago' }
+        '400':
+          description: |
+            `ID_INVALIDO`, `DATOS_INCOMPLETOS`, `MONTO_INVALIDO`, `MONTO_MAYOR_AL_SALDO`,
+            `MEDIO_PAGO_INEXISTENTE`, `OBRA_SOCIAL_REQUERIDA`, `OBRA_SOCIAL_INEXISTENTE`,
+            `FECHA_INVALIDA`, `COMPROBANTE_INVALIDO` u `OBSERVACIONES_INVALIDAS`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`CUOTA_NO_ENCONTRADA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`CUOTA_ANULADA` o `CUOTA_SIN_SALDO` (la cuota ya está pagada)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   # ------------------------------------------------------------------
   # CATÁLOGOS
   # ------------------------------------------------------------------
@@ -789,6 +850,11 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1, example: 1 }
+    IdCuota:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, example: 12 }
 
   responses:
     SolicitudInvalida:
@@ -1016,6 +1082,52 @@ components:
         internos_activos: { type: integer, example: 3 }
         creadas: { type: integer, example: 2 }
         omitidas: { type: integer, description: Ya tenían la cuota del período, example: 1 }
+
+    PagoNuevo:
+      type: object
+      required: [medio_pago_id, monto]
+      properties:
+        medio_pago_id: { type: integer, description: 'Del catálogo medios_pago', example: 1 }
+        monto:
+          type: number
+          format: float
+          description: Mayor a cero y como máximo el saldo pendiente de la cuota.
+          example: 9000
+        fecha_pago:
+          type: string
+          format: date
+          description: Por defecto hoy. No puede ser futura.
+          example: '2026-10-20'
+        numero_comprobante: { type: string, maxLength: 50, nullable: true, example: 0001-00012345 }
+        observaciones: { type: string, maxLength: 500, nullable: true, example: pago parcial }
+        obra_social_id:
+          type: integer
+          description: Obligatorio solo si el medio de pago es obra social.
+          example: 2
+
+    Cuota:
+      type: object
+      properties:
+        id: { type: integer, example: 12 }
+        interno_id: { type: integer, example: 1 }
+        periodo: { type: string, description: AAAA-MM, example: 2026-10 }
+        valor_base: { type: number, format: float, example: 18000 }
+        interes_aplicado: { type: number, format: float, example: 0 }
+        total: { type: number, format: float, example: 18000 }
+        saldo_pendiente: { type: number, format: float, example: 9000 }
+        estado: { type: string, enum: [pendiente, pagada, parcial, vencida, anulada], example: parcial }
+        fecha_vencimiento: { type: string, format: date, example: '2026-10-10' }
+
+    Pago:
+      type: object
+      properties:
+        id: { type: integer, example: 3 }
+        monto: { type: number, format: float, example: 9000 }
+        fecha_pago: { type: string, example: '2026-10-20 14:05:11' }
+        medio_pago: { type: string, example: efectivo }
+        numero_comprobante: { type: string, nullable: true, example: 0001-00012345 }
+        observaciones: { type: string, nullable: true, example: pago parcial }
+        registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }
 
     InternoPadron:
       type: object

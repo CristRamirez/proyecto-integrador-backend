@@ -111,6 +111,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
 | POST   | `/api/cuotas/generar`     | módulo `cobranzas`    | Genera las cuotas del período (BS-7)            |
+| POST   | `/api/cuotas/:id/pagos`   | módulo `cobranzas`    | Registra un pago total o parcial de la cuota (BS-8)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -450,6 +451,65 @@ cambio de valor posterior no la altera.
 | 400 `DATOS_INCOMPLETOS` | falta `anio` o `mes` |
 | 400 `PERIODO_INVALIDO` | el año no está entre 2020 y 2100, o el mes entre 1 y 12 |
 | 409 `SIN_PARAMETROS` | no hay parámetros de cobranza cargados todavía |
+
+### Registro de pago total o parcial (BS-8)
+
+```
+POST /api/cuotas/12/pagos
+Authorization: Bearer <token>
+
+{
+  "medio_pago_id": 1,
+  "monto": 9000,
+  "fecha_pago": "2026-10-20",
+  "numero_comprobante": "0001-00012345",
+  "observaciones": "pago parcial"
+}
+```
+
+`medio_pago_id` y `monto` son obligatorios; el resto es opcional. Si no viene la fecha, el pago
+queda con la de hoy, y no puede ser futura. Los medios de pago son los de la tabla `medios_pago`:
+efectivo, transferencia, débito, cheque y obra social. Cuando el medio es **obra social** hay
+que mandar también `obra_social_id` con la obra social que paga; como la tabla `pagos` todavía
+no tiene columna para eso, se guarda al principio de las observaciones.
+
+Al guardar el pago se descuenta del saldo de la cuota y se recalcula su estado: si el saldo
+queda en cero pasa a `pagada`, si no a `parcial`. Los importes se redondean a centavos antes de
+comparar. Responde 201 con la cuota actualizada y todos los pagos que tiene aplicados:
+
+```json
+{
+  "ok": true,
+  "cuota": {
+    "id": 12, "interno_id": 1, "periodo": "2026-10", "valor_base": 18000,
+    "interes_aplicado": 0, "total": 18000, "saldo_pendiente": 9000,
+    "estado": "parcial", "fecha_vencimiento": "2026-10-10"
+  },
+  "pagos": [
+    {
+      "id": 3, "monto": 9000, "fecha_pago": "2026-10-20 14:05:11", "medio_pago": "efectivo",
+      "numero_comprobante": "0001-00012345", "observaciones": "pago parcial",
+      "registrado_por": "Administrador de prueba"
+    }
+  ]
+}
+```
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id de la cuota no es un entero mayor a cero |
+| 400 `DATOS_INCOMPLETOS` | falta `monto` o `medio_pago_id` |
+| 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
+| 400 `MONTO_MAYOR_AL_SALDO` | el monto supera el saldo pendiente (el mensaje dice cuánto es) |
+| 400 `MEDIO_PAGO_INEXISTENTE` | el medio de pago no está en el catálogo |
+| 400 `OBRA_SOCIAL_REQUERIDA` | el medio es obra social y no vino `obra_social_id` |
+| 400 `OBRA_SOCIAL_INEXISTENTE` | la obra social no existe |
+| 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD o es futura |
+| 400 `COMPROBANTE_INVALIDO` | el número de comprobante supera los 50 caracteres |
+| 400 `OBSERVACIONES_INVALIDAS` | las observaciones superan los 500 caracteres |
+| 404 `CUOTA_NO_ENCONTRADA` | no existe una cuota con ese id |
+| 409 `CUOTA_ANULADA` | la cuota está anulada |
+| 409 `CUOTA_SIN_SALDO` | la cuota ya está pagada |
 
 ## Documentación para el front (Swagger)
 
