@@ -107,6 +107,9 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 | PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
 | POST   | `/api/internos/:id/baja`  | módulo `internos`     | Baja lógica del interno con motivo y fecha (BS-6)|
+| GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
+| GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
+| POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -373,6 +376,36 @@ cuotas nuevas.
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD, es futura o es anterior al ingreso |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
 | 409 `INTERNO_YA_EGRESADO` | el interno ya estaba dado de baja |
+
+### Parámetros de cobranza (BS-13)
+
+```
+POST /api/parametros
+Authorization: Bearer <token>
+
+{
+  "valor_cuota": 18000,
+  "valor_mora": 800,
+  "dia_vencimiento": 15,
+  "observaciones": "Aumento de noviembre"
+}
+```
+
+Guardar parámetros **nunca edita los vigentes**: se crea una fila nueva marcada como actual y
+la anterior queda archivada con su fecha. Rige desde el momento en que se guarda (`creado_en`).
+Las cuotas ya generadas no cambian, porque cada una guarda con qué configuración se emitió y
+copia sus valores. Solo el rol `administrador` accede a estos endpoints.
+
+`GET /api/parametros` devuelve la configuración vigente, o `null` si todavía no se cargó
+ninguna. `GET /api/parametros/historico` devuelve todas, de la más nueva a la más vieja, con
+el nombre de quién definió cada una.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta `valor_cuota` o `dia_vencimiento` |
+| 400 `MONTO_INVALIDO` | el valor de la cuota no es mayor a cero, o la mora es negativa |
+| 400 `DIA_INVALIDO` | el día de vencimiento no es un entero entre 1 y 31 |
+| 400 `OBSERVACIONES_INVALIDAS` | las observaciones superan los 500 caracteres |
 
 ## Documentación para el front (Swagger)
 

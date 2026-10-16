@@ -28,6 +28,8 @@ tags:
     description: ABM de módulos (solo rol administrador)
   - name: Roles
     description: Permisos de cada rol (solo rol administrador)
+  - name: Parámetros
+    description: Valores con los que se generan las cuotas (solo rol administrador)
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -384,6 +386,86 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  # ------------------------------------------------------------------
+  # PARÁMETROS DE COBRANZA
+  # ------------------------------------------------------------------
+  /parametros:
+    get:
+      tags: [Parámetros]
+      summary: Parámetros de cobranza vigentes (BS-13)
+      description: Devuelve la configuración marcada como actual, o null si todavía no se cargó ninguna.
+      responses:
+        '200':
+          description: La configuración vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  configuracion:
+                    nullable: true
+                    allOf: [{ $ref: '#/components/schemas/ConfiguracionCuota' }]
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+    post:
+      tags: [Parámetros]
+      summary: Guardar parámetros de cobranza (BS-13)
+      description: |
+        Nunca edita la configuración vigente: crea una fila nueva marcada como actual y archiva
+        la anterior, que queda en el histórico con su fecha. Rige desde que se guarda.
+
+        Las cuotas ya generadas no se modifican de forma retroactiva: cada una guarda con qué
+        configuración se emitió y copia sus valores.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ParametrosNuevos' }
+            example:
+              valor_cuota: 18000
+              valor_mora: 800
+              dia_vencimiento: 15
+              observaciones: Aumento de noviembre
+      responses:
+        '201':
+          description: Configuración guardada, ya vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  configuracion: { $ref: '#/components/schemas/ConfiguracionCuota' }
+        '400':
+          description: '`DATOS_INCOMPLETOS`, `MONTO_INVALIDO`, `DIA_INVALIDO` u `OBSERVACIONES_INVALIDAS`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /parametros/historico:
+    get:
+      tags: [Parámetros]
+      summary: Histórico de parámetros de cobranza (BS-13)
+      description: Todas las configuraciones, de la más nueva a la más vieja, con quién definió cada una.
+      responses:
+        '200':
+          description: El histórico completo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  configuraciones:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConfiguracionCuota' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
 
   # ------------------------------------------------------------------
   # CATÁLOGOS
@@ -841,6 +923,36 @@ components:
           format: date
           description: No puede ser futura ni anterior a la fecha de ingreso del interno.
           example: '2026-10-03'
+
+    ParametrosNuevos:
+      type: object
+      required: [valor_cuota, dia_vencimiento]
+      properties:
+        valor_cuota: { type: number, format: float, minimum: 0, example: 18000 }
+        valor_mora:
+          type: number
+          format: float
+          minimum: 0
+          default: 0
+          description: Interés por pago fuera de término.
+          example: 800
+        dia_vencimiento: { type: integer, minimum: 1, maximum: 31, example: 15 }
+        observaciones: { type: string, maxLength: 500, nullable: true, example: Aumento de noviembre }
+
+    ConfiguracionCuota:
+      type: object
+      properties:
+        id: { type: integer, example: 2 }
+        valor_cuota: { type: number, format: float, example: 18000 }
+        valor_mora: { type: number, format: float, example: 800 }
+        dia_vencimiento: { type: integer, example: 15 }
+        es_actual: { type: integer, enum: [0, 1], example: 1 }
+        observaciones: { type: string, nullable: true, example: Aumento de noviembre }
+        creado_en:
+          type: string
+          description: Desde cuándo rige esta configuración.
+          example: '2026-10-16 17:33:12'
+        definido_por: { type: string, nullable: true, example: Administrador de prueba }
 
     InternoPadron:
       type: object

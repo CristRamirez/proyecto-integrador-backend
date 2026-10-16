@@ -120,6 +120,17 @@ const estadosCuota = sqliteTable('estados_cuota', {
   nombre: text('nombre').notNull(),
 });
 
+const configuracionCuotas = sqliteTable('configuracion_cuotas', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  valor_cuota: real('valor_cuota').notNull(),
+  valor_mora: real('valor_mora').notNull().default(0),
+  dia_vencimiento: integer('dia_vencimiento').notNull(),
+  es_actual: integer('es_actual').notNull().default(0),
+  observaciones: text('observaciones'),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+});
+
 const cuotas = sqliteTable('cuotas', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   interno_id: integer('interno_id').notNull(),
@@ -148,5 +159,6 @@ module.exports = {
   contactosFamiliares,
   historialEstados,
   estadosCuota,
+  configuracionCuotas,
   cuotas,
 };
