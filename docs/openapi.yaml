@@ -400,7 +400,8 @@ paths:
         y el saldo de cada una, más el total adeudado (suma de los saldos de las cuotas que no
         están anuladas). Un interno sin cuotas devuelve la lista vacía y el total en cero.
 
-        El rol necesita los módulos `internos` y `cobranzas`. `interes_aplicado` viene en cero
+        Pide el módulo `cobranzas` y no el de `internos`: un rol de contador puede cobrar sin
+        tener acceso al padrón. `interes_aplicado` viene en cero
         hasta que se haga el cálculo de la mora (BS-11).
       responses:
         '200':
@@ -517,6 +518,63 @@ paths:
   # ------------------------------------------------------------------
   # COBRANZAS
   # ------------------------------------------------------------------
+  /cuotas:
+    get:
+      tags: [Cobranzas]
+      summary: Cuotas de un período, de todos los internos
+      description: |
+        Lo que necesita la pantalla principal de Cobranzas: el listado de cuotas del período
+        con los totales de arriba.
+
+        `estado` acepta los del catálogo y además `vencida`, que no es un estado guardado sino
+        una condición: saldo mayor a cero, no anulada y fecha de vencimiento anterior a hoy. Una
+        cuota vencida sigue figurando como `pendiente` o `parcial` en el campo `estado` hasta
+        que esté el cálculo de la mora (BS-11).
+
+        El `resumen` es de todo el período y **no** aplica `estado` ni `q`: son los indicadores
+        de la pantalla, que no cambian al filtrar. No cuenta las anuladas.
+      parameters:
+        - { name: anio, in: query, required: true, schema: { type: integer, minimum: 2020, maximum: 2100 }, example: 2026 }
+        - { name: mes, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 12 }, example: 10 }
+        - name: estado
+          in: query
+          required: false
+          schema: { type: string, enum: [pendiente, parcial, pagada, vencida, anulada] }
+        - name: q
+          in: query
+          required: false
+          description: Busca por DNI, apellido, nombre o legajo, sin distinguir mayúsculas ni acentos.
+          schema: { type: string }
+          example: perez
+        - { name: pagina, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: por_pagina, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Cuotas del período, con el resumen y la paginación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  periodo:
+                    type: object
+                    properties:
+                      anio: { type: integer, example: 2026 }
+                      mes: { type: integer, example: 10 }
+                  resumen: { $ref: '#/components/schemas/ResumenPeriodo' }
+                  cuotas:
+                    type: array
+                    items: { $ref: '#/components/schemas/CuotaDelPeriodo' }
+                  paginacion: { $ref: '#/components/schemas/Paginacion' }
+        '400':
+          description: '`DATOS_INCOMPLETOS`, `PERIODO_INVALIDO`, `ESTADO_INEXISTENTE` o `PAGINACION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /cuotas/generar:
     post:
       tags: [Cobranzas]
@@ -631,6 +689,25 @@ paths:
                 properties:
                   ok: { type: boolean, example: true }
                   estados:
+                    type: array
+                    items: { $ref: '#/components/schemas/ItemCatalogo' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+
+  /medios-pago:
+    get:
+      tags: [Catálogos]
+      summary: Catálogo de medios de pago
+      description: Para el desplegable del pago. Los ids salen de acá, no se escriben a mano en el front.
+      responses:
+        '200':
+          description: Los medios de pago cargados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  mediosPago:
                     type: array
                     items: { $ref: '#/components/schemas/ItemCatalogo' }
         '401': { $ref: '#/components/responses/NoAutenticado' }
@@ -1173,6 +1250,56 @@ components:
         numero_comprobante: { type: string, nullable: true, example: 0001-00012345 }
         observaciones: { type: string, nullable: true, example: pago parcial }
         registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }
+
+    Paginacion:
+      type: object
+      properties:
+        pagina: { type: integer, example: 1 }
+        por_pagina: { type: integer, example: 20 }
+        total: { type: integer, example: 135 }
+        total_paginas: { type: integer, example: 7 }
+
+    ResumenPeriodo:
+      type: object
+      description: Totales de todo el período, sin aplicar los filtros y sin contar las anuladas.
+      properties:
+        facturado: { type: number, format: float, example: 117800 }
+        cobrado: { type: number, format: float, description: Facturado menos la suma de saldos, example: 96400 }
+        pendiente: { type: number, format: float, description: Saldos de las que no vencieron, example: 14700 }
+        vencido: { type: number, format: float, description: Saldos de las vencidas, example: 6700 }
+        cuotas: { type: integer, example: 128 }
+        cuotas_pendientes: { type: integer, description: Con saldo y sin vencer, example: 16 }
+        internos_con_vencidas: { type: integer, example: 7 }
+
+    UltimoPago:
+      type: object
+      nullable: true
+      properties:
+        fecha_pago: { type: string, example: '2026-10-20 14:05:11' }
+        numero_comprobante: { type: string, nullable: true, example: '0001-00012345' }
+        medio_pago: { type: string, example: efectivo }
+
+    CuotaDelPeriodo:
+      type: object
+      properties:
+        id: { type: integer, example: 12 }
+        interno_id: { type: integer, example: 1 }
+        periodo: { type: string, example: '2026-10' }
+        valor_base: { type: number, format: float, example: 18000 }
+        interes_aplicado: { type: number, format: float, example: 0 }
+        total: { type: number, format: float, example: 18000 }
+        saldo_pendiente: { type: number, format: float, example: 9000 }
+        estado: { type: string, example: parcial }
+        fecha_vencimiento: { type: string, format: date, example: '2026-10-10' }
+        interno:
+          type: object
+          properties:
+            id: { type: integer, example: 1 }
+            dni: { type: string, example: '30111222' }
+            apellido: { type: string, example: Pérez }
+            nombre: { type: string, example: Juan }
+            legajo: { type: string, nullable: true, description: El último legajo abierto, example: LEG-20261002-0001 }
+        ultimo_pago: { $ref: '#/components/schemas/UltimoPago' }
 
     InternoPadron:
       type: object

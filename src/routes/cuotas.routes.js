@@ -9,6 +9,7 @@ const router = Router();
 
 router.use(requiereAutenticacion, requiereModulo('cobranzas'));
 
+router.get('/', asyncHandler(cuotas.listar));
 router.post('/generar', asyncHandler(cuotas.generar));
 router.post('/:id/pagos', asyncHandler(pagos.registrar));
 

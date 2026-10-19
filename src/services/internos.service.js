@@ -304,6 +304,8 @@ async function buscar({ palabras = [], estadoId = null, judicializado = null, pa
 
 module.exports = {
   buscar,
+  coincideCon,
+  ultimoLegajo,
   buscarActivoPorDni,
   crear,
   actualizar,
