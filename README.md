@@ -110,9 +110,11 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
 | GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
+| GET    | `/api/cuotas`             | módulo `cobranzas`    | Cuotas de un período, con filtros y totales     |
 | POST   | `/api/cuotas/generar`     | módulo `cobranzas`    | Genera las cuotas del período (BS-7)            |
 | POST   | `/api/cuotas/:id/pagos`   | módulo `cobranzas`    | Registra un pago total o parcial de la cuota (BS-8)|
-| GET    | `/api/internos/:id/cuenta-corriente` | módulos `internos` y `cobranzas` | Cuotas, pagos y total adeudado del interno (BS-9)|
+| GET    | `/api/internos/:id/cuenta-corriente` | módulo `cobranzas` | Cuotas, pagos y total adeudado del interno (BS-9)|
+| GET    | `/api/medios-pago`        | con token             | Catálogo de medios de pago                      |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -512,6 +514,63 @@ comparar. Responde 201 con la cuota actualizada y todos los pagos que tiene apli
 | 409 `CUOTA_ANULADA` | la cuota está anulada |
 | 409 `CUOTA_SIN_SALDO` | la cuota ya está pagada |
 
+### Cuotas del período
+
+```
+GET /api/cuotas?anio=2026&mes=10&estado=vencida&q=perez&pagina=1&por_pagina=20
+Authorization: Bearer <token>
+```
+
+Las cuotas de un período, de todos los internos: es lo que necesita la pantalla principal de
+Cobranzas. `anio` y `mes` son obligatorios; `estado`, `q`, `pagina` y `por_pagina` son
+opcionales y funcionan igual que en el padrón (20 por página, 100 como máximo). Ordena por
+apellido y nombre.
+
+El filtro `q` busca por DNI, apellido, nombre o número de legajo, sin distinguir mayúsculas
+ni acentos, y cada palabra tiene que aparecer en alguno de esos campos.
+
+`estado` acepta los del catálogo (`pendiente`, `parcial`, `pagada`, `anulada`) y además
+`vencida`, que no es un estado guardado sino una condición: saldo mayor a cero, no anulada y
+fecha de vencimiento anterior a hoy. Una cuota vencida sigue figurando como `pendiente` o
+`parcial` en el campo `estado` hasta que esté el cálculo de la mora (BS-11).
+
+Cada cuota trae los mismos campos que en la cuenta corriente, más `interno` (con el último
+legajo abierto) y `ultimo_pago`, que es el pago más reciente o `null` si todavía no tiene.
+
+El `resumen` es de **todo el período y sin aplicar los filtros**: son los indicadores de
+arriba de la pantalla, que no cambian al filtrar o buscar. No cuenta las cuotas anuladas.
+
+| Campo del resumen | Qué es |
+|---|---|
+| `facturado` | Suma de los totales |
+| `cobrado` | Lo facturado menos la suma de los saldos |
+| `vencido` | Suma de los saldos de las vencidas |
+| `pendiente` | Suma de los saldos de las que todavía no vencieron |
+| `cuotas` | Cuántas hay en el período |
+| `cuotas_pendientes` | Cuántas tienen saldo y no están vencidas |
+| `internos_con_vencidas` | Cuántos internos distintos tienen alguna vencida |
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta `anio` o `mes` |
+| 400 `PERIODO_INVALIDO` | el año no está entre 2020 y 2100, o el mes entre 1 y 12 |
+| 400 `ESTADO_INEXISTENTE` | el estado no es uno de los aceptados |
+| 400 `PAGINACION_INVALIDA` | `pagina` o `por_pagina` no son enteros mayores a cero |
+
+### Catálogo de medios de pago
+
+```
+GET /api/medios-pago
+Authorization: Bearer <token>
+```
+
+```json
+{ "ok": true, "mediosPago": [{ "id": 1, "nombre": "efectivo" }] }
+```
+
+Para el desplegable del pago. Los ids no se escriben a mano en el front: salen de acá, porque
+pueden no coincidir con los del seed en cada base.
+
 ### Cuenta corriente del interno (BS-9)
 
 ```
@@ -519,8 +578,9 @@ GET /api/internos/1/cuenta-corriente
 Authorization: Bearer <token>
 ```
 
-Cuelga del interno porque se abre desde su ficha, pero muestra datos de cobranzas: el rol
-necesita tener los dos módulos, `internos` y `cobranzas`. Lista todas las cuotas del interno,
+Cuelga del interno porque se abre desde su ficha, pero lo que muestra son datos de cobranzas:
+pide el módulo `cobranzas` y no el de `internos`, así un rol de contador puede cobrar sin
+tener acceso al padrón. Lista todas las cuotas del interno,
 de la más vieja a la más nueva, cada una con los pagos que tiene aplicados y su saldo:
 
 ```json

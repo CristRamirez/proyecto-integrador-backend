@@ -7,14 +7,16 @@ const pagos = require('../controllers/pagos.controller');
 
 const router = Router();
 
-router.use(requiereAutenticacion, requiereModulo('internos'));
+router.use(requiereAutenticacion);
 
-router.get('/', asyncHandler(internos.listar));
-router.get('/verificar-dni/:dni', asyncHandler(internos.verificarDni));
-router.get('/:id', asyncHandler(internos.ficha));
+const padron = requiereModulo('internos');
+
+router.get('/', padron, asyncHandler(internos.listar));
+router.get('/verificar-dni/:dni', padron, asyncHandler(internos.verificarDni));
+router.get('/:id', padron, asyncHandler(internos.ficha));
 router.get('/:id/cuenta-corriente', requiereModulo('cobranzas'), asyncHandler(pagos.cuentaCorriente));
-router.post('/', asyncHandler(internos.alta));
-router.post('/:id/baja', asyncHandler(internos.baja));
-router.put('/:id', asyncHandler(internos.modificar));
+router.post('/', padron, asyncHandler(internos.alta));
+router.post('/:id/baja', padron, asyncHandler(internos.baja));
+router.put('/:id', padron, asyncHandler(internos.modificar));
 
 module.exports = router;

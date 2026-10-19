@@ -10,4 +10,8 @@ async function listarObrasSociales(req, res) {
   res.json({ ok: true, obrasSociales: await catalogos.listarObrasSociales() });
 }
 
-module.exports = { listarEstados, listarObrasSociales };
+async function listarMediosPago(req, res) {
+  res.json({ ok: true, mediosPago: await catalogos.listarMediosPago() });
+}
+
+module.exports = { listarEstados, listarObrasSociales, listarMediosPago };
