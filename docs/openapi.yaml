@@ -700,6 +700,113 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /egresos:
+    get:
+      tags: [Cobranzas]
+      summary: Egresos del período (BS-12)
+      description: |
+        Los gastos de la institución de un período, con el total y el desglose por categoría,
+        para contrastarlos con los ingresos del mes (el `cobrado` del resumen de `/cuotas`).
+
+        El `resumen` es de todo el período y **no** aplica el filtro de categoría. Ordena del
+        egreso más reciente al más viejo.
+      parameters:
+        - { name: anio, in: query, required: true, schema: { type: integer, minimum: 2020, maximum: 2100 }, example: 2026 }
+        - { name: mes, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 12 }, example: 10 }
+        - name: categoria
+          in: query
+          required: false
+          description: No distingue mayúsculas.
+          schema: { type: string }
+          example: servicios
+        - { name: pagina, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: por_pagina, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Egresos del período, con el resumen y la paginación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  periodo:
+                    type: object
+                    properties:
+                      anio: { type: integer, example: 2026 }
+                      mes: { type: integer, example: 10 }
+                  resumen: { $ref: '#/components/schemas/ResumenEgresos' }
+                  egresos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Egreso' }
+                  paginacion: { $ref: '#/components/schemas/Paginacion' }
+        '400':
+          description: '`DATOS_INCOMPLETOS`, `PERIODO_INVALIDO` o `PAGINACION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+    post:
+      tags: [Cobranzas]
+      summary: Registro de un egreso institucional (BS-12)
+      description: |
+        La fecha es opcional: si no viene se usa la del día, y no puede ser futura. La categoría
+        se guarda en minúsculas para que no se dupliquen en los totales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EgresoNuevo' }
+            example:
+              concepto: Factura de luz
+              categoria: servicios
+              monto: 45000.5
+              medio_pago_id: 2
+              fecha: '2026-10-05'
+              comprobante: B-0001-00099
+      responses:
+        '201':
+          description: Egreso registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  egreso: { $ref: '#/components/schemas/Egreso' }
+        '400':
+          description: |
+            `DATOS_INCOMPLETOS`, `MONTO_INVALIDO`, `MEDIO_PAGO_INEXISTENTE`, `FECHA_INVALIDA`,
+            `CONCEPTO_INVALIDO`, `CATEGORIA_INVALIDA`, `COMPROBANTE_INVALIDO` u `OBSERVACIONES_INVALIDAS`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /egresos/categorias:
+    get:
+      tags: [Cobranzas]
+      summary: Categorías de egresos ya usadas (BS-12)
+      description: Para ofrecerlas en el formulario sin obligar a escribirlas de nuevo.
+      responses:
+        '200':
+          description: Las categorías cargadas, ordenadas alfabéticamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  categorias:
+                    type: array
+                    items: { type: string }
+                    example: [insumos, servicios, sueldos]
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   # ------------------------------------------------------------------
   # CATÁLOGOS
   # ------------------------------------------------------------------
@@ -1294,6 +1401,51 @@ components:
         numero_comprobante: { type: string, nullable: true, example: 0001-00012345 }
         observaciones: { type: string, nullable: true, example: pago parcial }
         registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }
+
+    EgresoNuevo:
+      type: object
+      required: [concepto, categoria, monto, medio_pago_id]
+      properties:
+        concepto: { type: string, maxLength: 200, example: Factura de luz }
+        categoria: { type: string, maxLength: 60, description: Se guarda en minúsculas, example: servicios }
+        monto: { type: number, format: float, minimum: 0, example: 45000.5 }
+        medio_pago_id: { type: integer, description: 'Del catálogo /medios-pago', example: 2 }
+        fecha:
+          type: string
+          format: date
+          description: Por defecto la del día. No puede ser futura.
+          example: '2026-10-05'
+        comprobante: { type: string, maxLength: 100, nullable: true, example: B-0001-00099 }
+        observaciones: { type: string, maxLength: 500, nullable: true }
+
+    Egreso:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        concepto: { type: string, example: Factura de luz }
+        categoria: { type: string, example: servicios }
+        monto: { type: number, format: float, example: 45000.5 }
+        fecha: { type: string, example: '2026-10-05' }
+        comprobante: { type: string, nullable: true, example: B-0001-00099 }
+        observaciones: { type: string, nullable: true }
+        medio_pago: { type: string, example: transferencia }
+        registrado_por: { type: string, nullable: true, example: Administrador de prueba }
+
+    ResumenEgresos:
+      type: object
+      description: Totales de todo el período, sin aplicar el filtro de categoría.
+      properties:
+        cantidad: { type: integer, example: 4 }
+        total: { type: number, format: float, example: 385000.5 }
+        por_categoria:
+          type: array
+          description: De mayor a menor gasto.
+          items:
+            type: object
+            properties:
+              categoria: { type: string, example: sueldos }
+              cantidad: { type: integer, example: 1 }
+              total: { type: number, format: float, example: 300000 }
 
     Paginacion:
       type: object
