@@ -116,6 +116,9 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/cuotas/:id/pagos`   | módulo `cobranzas`    | Registra un pago total o parcial de la cuota (BS-8)|
 | GET    | `/api/internos/:id/cuenta-corriente` | módulo `cobranzas` | Cuotas, pagos y total adeudado del interno (BS-9)|
 | GET    | `/api/medios-pago`        | con token             | Catálogo de medios de pago                      |
+| GET    | `/api/egresos`            | módulo `cobranzas`    | Egresos del período, con totales por categoría (BS-12)|
+| GET    | `/api/egresos/categorias` | módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
+| POST   | `/api/egresos`            | módulo `cobranzas`    | Registra un egreso institucional (BS-12)        |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -613,6 +616,75 @@ de la más vieja a la más nueva, cada una con los pagos que tiene aplicados y s
 `total_adeudado` es la suma de los saldos de las cuotas que no están anuladas. Un interno sin
 cuotas devuelve la lista vacía y el total en cero. Las cuotas en mora traen el interés en
 `interes_aplicado`, ya sumado al total y al saldo (BS-11).
+
+### Egresos institucionales (BS-12)
+
+Los gastos de la institución, que no están atados a ningún interno. Se registran con su
+categoría para poder contrastarlos con los ingresos del mes.
+
+```
+POST /api/egresos
+Authorization: Bearer <token>
+
+{
+  "concepto": "Factura de luz",
+  "categoria": "servicios",
+  "monto": 45000.50,
+  "medio_pago_id": 2,
+  "fecha": "2026-10-05",
+  "comprobante": "B-0001-00099",
+  "observaciones": "vencimiento 10/10"
+}
+```
+
+`concepto`, `categoria`, `monto` y `medio_pago_id` son obligatorios. La fecha es opcional:
+si no viene se usa la del día, y no puede ser futura. La categoría se guarda en minúsculas,
+igual que los nombres de los módulos, para que "Servicios" y "servicios" no queden como dos
+categorías distintas en los totales. Responde 201 con el egreso, ya resueltos el medio de
+pago y quién lo registró.
+
+```
+GET /api/egresos?anio=2026&mes=10&categoria=servicios&pagina=1&por_pagina=20
+```
+
+`anio` y `mes` son obligatorios; `categoria`, `pagina` y `por_pagina` son opcionales. Ordena
+del egreso más reciente al más viejo. El filtro de categoría no distingue mayúsculas.
+
+El `resumen` es de **todo el período y sin aplicar el filtro**, igual que en el listado de
+cuotas: trae el total, la cantidad de movimientos y el desglose `por_categoria`, ordenado de
+mayor a menor gasto.
+
+```json
+{
+  "ok": true,
+  "periodo": { "anio": 2026, "mes": 10 },
+  "resumen": {
+    "cantidad": 4,
+    "total": 385000.5,
+    "por_categoria": [
+      { "categoria": "sueldos", "cantidad": 1, "total": 300000 },
+      { "categoria": "servicios", "cantidad": 2, "total": 67000.5 }
+    ]
+  },
+  "egresos": [ ... ],
+  "paginacion": { "pagina": 1, "por_pagina": 20, "total": 4, "total_paginas": 1 }
+}
+```
+
+Para el contraste con los ingresos del mes, el total de acá se compara con el `cobrado` del
+resumen de `GET /api/cuotas` del mismo período.
+
+`GET /api/egresos/categorias` devuelve las categorías que ya se usaron alguna vez, ordenadas
+alfabéticamente, para ofrecerlas en el formulario sin obligar a escribirlas de nuevo.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto o el medio de pago |
+| 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
+| 400 `MEDIO_PAGO_INEXISTENTE` | el medio de pago no está en el catálogo |
+| 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD o es futura |
+| 400 `CONCEPTO_INVALIDO`, `CATEGORIA_INVALIDA`, `COMPROBANTE_INVALIDO`, `OBSERVACIONES_INVALIDAS` | el texto supera el largo permitido |
+| 400 `PERIODO_INVALIDO`, `PAGINACION_INVALIDA` | en el listado, igual que en el de cuotas |
 
 ### Interés por mora (BS-11)
 

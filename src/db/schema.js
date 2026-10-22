@@ -164,6 +164,19 @@ const pagos = sqliteTable('pagos', {
   creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
 });
 
+const egresos = sqliteTable('egresos', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  medio_pago_id: integer('medio_pago_id').notNull(),
+  concepto: text('concepto').notNull(),
+  categoria: text('categoria'),
+  monto: real('monto').notNull(),
+  fecha: text('fecha').notNull().default(sql`(datetime('now'))`),
+  comprobante: text('comprobante'),
+  observaciones: text('observaciones'),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+});
+
 module.exports = {
   roles,
   usuarios,
@@ -180,4 +193,5 @@ module.exports = {
   cuotas,
   mediosPago,
   pagos,
+  egresos,
 };

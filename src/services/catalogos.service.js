@@ -13,6 +13,16 @@ async function listarObrasSociales() {
   return db().select().from(obrasSociales).orderBy(asc(obrasSociales.nombre));
 }
 
+async function buscarMedioPago(medioPagoId) {
+  const [fila] = await db()
+    .select({ id: mediosPago.id, nombre: mediosPago.nombre })
+    .from(mediosPago)
+    .where(eq(mediosPago.id, medioPagoId))
+    .limit(1);
+
+  return fila || null;
+}
+
 async function listarMediosPago() {
   return db().select().from(mediosPago).orderBy(asc(mediosPago.nombre));
 }
@@ -24,4 +34,10 @@ async function buscarEstadoPorNombre(nombre) {
   return fila || null;
 }
 
-module.exports = { listarEstados, listarObrasSociales, listarMediosPago, buscarEstadoPorNombre };
+module.exports = {
+  listarEstados,
+  listarObrasSociales,
+  listarMediosPago,
+  buscarMedioPago,
+  buscarEstadoPorNombre,
+};
