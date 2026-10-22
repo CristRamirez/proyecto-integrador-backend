@@ -8,6 +8,13 @@
   "compatibility_date": "2026-05-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Todos los días a las 03:05 UTC (00:05 en Argentina) aplica la mora a las
+  // cuotas vencidas sin pago en término (BS-11). Lo atiende scheduled() en
+  // src/worker.mjs.
+  "triggers": {
+    "crons": ["5 3 * * *"]
+  },
+
   "observability": {
     "enabled": true
   },

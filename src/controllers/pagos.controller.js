@@ -6,6 +6,7 @@ const catalogos = require('../services/catalogos.service');
 const ESTADO_PAGADA = 'pagada';
 const ESTADO_PARCIAL = 'parcial';
 const ESTADO_ANULADA = 'anulada';
+const ESTADO_VENCIDA = 'vencida';
 const MEDIO_OBRA_SOCIAL = 'obra social';
 const MAXIMO_OBSERVACIONES = 500;
 const MAXIMO_COMPROBANTE = 50;
@@ -147,7 +148,7 @@ async function leerObraSocialPagadora(valor) {
 async function registrar(req, res) {
   const id = leerIdCuota(req.params.id);
   const cuerpo = req.body || {};
-  const cuota = await pagos.obtenerCuota(id);
+  let cuota = await pagos.obtenerCuota(id);
 
   if (!cuota) {
     throw ApiError.noEncontrado('La cuota no existe', 'CUOTA_NO_ENCONTRADA');
@@ -157,7 +158,21 @@ async function registrar(req, res) {
     throw new ApiError(409, 'La cuota está anulada: no admite pagos', 'CUOTA_ANULADA');
   }
 
-  const saldo = centavos(cuota.saldo_pendiente);
+  // La mora (BS-11) depende de la fecha del pago y no de cuándo se registra.
+  // Si se paga después del vencimiento y el cron todavía no pasó, el interés
+  // se aplica ahora para que se cobre con este pago. Si el pago es en término
+  // y la cuota ya tenía la mora aplicada, la mora no correspondía: se descuenta
+  // del saldo acá y se quita de la cuota recién cuando se guarda el pago.
+  const fechaPago = leerFechaPago(cuerpo.fecha_pago);
+  const enTermino = (fechaPago ? fechaPago.slice(0, 10) : hoy()) <= cuota.fecha_vencimiento;
+
+  if (!enTermino) {
+    await cuotas.aplicarMora(id);
+    cuota = await pagos.obtenerCuota(id);
+  }
+
+  const sinMora = enTermino && cuota.estado === ESTADO_VENCIDA;
+  const saldo = centavos(cuota.saldo_pendiente - (sinMora ? cuota.interes_aplicado : 0));
 
   if (saldo <= 0) {
     throw new ApiError(409, 'La cuota ya está pagada: no tiene saldo pendiente', 'CUOTA_SIN_SALDO');
@@ -165,7 +180,6 @@ async function registrar(req, res) {
 
   const monto = leerMonto(cuerpo.monto, saldo);
   const medio = await leerMedioPago(cuerpo.medio_pago_id);
-  const fechaPago = leerFechaPago(cuerpo.fecha_pago);
   const numeroComprobante = leerTextoOpcional(
     cuerpo.numero_comprobante,
     'El número de comprobante',
@@ -184,11 +198,17 @@ async function registrar(req, res) {
     observaciones = [`Obra social pagadora: ${obraSocial.nombre}`, observaciones].filter(Boolean).join(' - ');
   }
 
+  // Una cuota en mora sigue vencida hasta que se cancela del todo.
   const saldoNuevo = centavos(saldo - monto);
-  const estado = await cuotas.buscarEstadoPorNombre(saldoNuevo <= 0 ? ESTADO_PAGADA : ESTADO_PARCIAL);
+  const estadoNuevo = cuota.estado === ESTADO_VENCIDA && !sinMora ? ESTADO_VENCIDA : ESTADO_PARCIAL;
+  const estado = await cuotas.buscarEstadoPorNombre(saldoNuevo <= 0 ? ESTADO_PAGADA : estadoNuevo);
 
   if (!estado) {
     throw new ApiError(500, 'Faltan los estados de cuota en la base de datos', 'ESTADO_CUOTA_FALTANTE');
+  }
+
+  if (sinMora) {
+    await cuotas.quitarMora(id);
   }
 
   await pagos.crear({
@@ -220,9 +240,8 @@ function leerIdInterno(valor) {
 }
 
 // GET /api/internos/:id/cuenta-corriente
-// El interés aplicado viene en cero hasta que se haga el cálculo de la mora
-// (BS-11); cuando se haga, se muestra solo. Las cuotas anuladas se listan pero
-// no suman al total adeudado.
+// Las cuotas en mora vienen con el interés ya sumado al total y al saldo
+// (BS-11). Las cuotas anuladas se listan pero no suman al total adeudado.
 async function cuentaCorriente(req, res) {
   const id = leerIdInterno(req.params.id);
   const interno = await pagos.buscarInterno(id);

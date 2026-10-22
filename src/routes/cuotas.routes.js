@@ -11,6 +11,7 @@ router.use(requiereAutenticacion, requiereModulo('cobranzas'));
 
 router.get('/', asyncHandler(cuotas.listar));
 router.post('/generar', asyncHandler(cuotas.generar));
+router.post('/aplicar-mora', asyncHandler(cuotas.aplicarMora));
 router.post('/:id/pagos', asyncHandler(pagos.registrar));
 
 module.exports = router;

@@ -161,4 +161,19 @@ async function listar(req, res) {
   });
 }
 
-module.exports = { generar, listar };
+// POST /api/cuotas/aplicar-mora
+// Lo mismo que hace el cron todos los días (BS-11), para correrlo a mano.
+// Es seguro repetirlo: las cuotas que ya están vencidas no vuelven a sumar
+// interés.
+async function aplicarMora(req, res) {
+  const enMora = await cuotas.aplicarMora();
+
+  res.json({
+    ok: true,
+    aplicadas: enMora.length,
+    interes_total: enMora.reduce((total, cuota) => redondear(total + cuota.interes_aplicado), 0),
+    cuotas: enMora,
+  });
+}
+
+module.exports = { generar, listar, aplicarMora };
