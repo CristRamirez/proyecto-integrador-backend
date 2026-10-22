@@ -112,6 +112,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
 | GET    | `/api/cuotas`             | módulo `cobranzas`    | Cuotas de un período, con filtros y totales     |
 | POST   | `/api/cuotas/generar`     | módulo `cobranzas`    | Genera las cuotas del período (BS-7)            |
+| POST   | `/api/cuotas/aplicar-mora`| módulo `cobranzas`    | Aplica el interés por mora a las vencidas (BS-11)|
 | POST   | `/api/cuotas/:id/pagos`   | módulo `cobranzas`    | Registra un pago total o parcial de la cuota (BS-8)|
 | GET    | `/api/internos/:id/cuenta-corriente` | módulo `cobranzas` | Cuotas, pagos y total adeudado del interno (BS-9)|
 | GET    | `/api/medios-pago`        | con token             | Catálogo de medios de pago                      |
@@ -477,7 +478,10 @@ que mandar también `obra_social_id` con la obra social que paga; como la tabla 
 no tiene columna para eso, se guarda al principio de las observaciones.
 
 Al guardar el pago se descuenta del saldo de la cuota y se recalcula su estado: si el saldo
-queda en cero pasa a `pagada`, si no a `parcial`. Los importes se redondean a centavos antes de
+queda en cero pasa a `pagada`, si no a `parcial` (o sigue `vencida` si está en mora).
+Antes de descontarlo se mira la mora por la **fecha del pago**: si es posterior al vencimiento
+y la cuota todavía no tenía el interés, se le aplica en ese momento; si es en término y la
+cuota ya tenía la mora, se le quita (ver BS-11). Los importes se redondean a centavos antes de
 comparar. Responde 201 con la cuota actualizada y todos los pagos que tiene aplicados:
 
 ```json
@@ -531,8 +535,9 @@ ni acentos, y cada palabra tiene que aparecer en alguno de esos campos.
 
 `estado` acepta los del catálogo (`pendiente`, `parcial`, `pagada`, `anulada`) y además
 `vencida`, que no es un estado guardado sino una condición: saldo mayor a cero, no anulada y
-fecha de vencimiento anterior a hoy. Una cuota vencida sigue figurando como `pendiente` o
-`parcial` en el campo `estado` hasta que esté el cálculo de la mora (BS-11).
+fecha de vencimiento anterior a hoy. Incluye las que están en mora (estado `vencida`) y
+también las que vencieron con un pago en término, que no llevan interés y siguen como
+`parcial`.
 
 Cada cuota trae los mismos campos que en la cuenta corriente, más `interno` (con el último
 legajo abierto) y `ultimo_pago`, que es el pago más reciente o `null` si todavía no tiene.
@@ -606,8 +611,50 @@ de la más vieja a la más nueva, cada una con los pagos que tiene aplicados y s
 ```
 
 `total_adeudado` es la suma de los saldos de las cuotas que no están anuladas. Un interno sin
-cuotas devuelve la lista vacía y el total en cero. `interes_aplicado` viene en cero hasta que
-se haga el cálculo de la mora (BS-11).
+cuotas devuelve la lista vacía y el total en cero. Las cuotas en mora traen el interés en
+`interes_aplicado`, ya sumado al total y al saldo (BS-11).
+
+### Interés por mora (BS-11)
+
+El interés se calcula solo, sin que nadie tenga que cargarlo a mano:
+
+- **Regla 6:** si se registró algún pago de la cuota hasta su fecha de vencimiento inclusive,
+  no lleva interés, aunque el pago haya sido parcial.
+- **Regla 7:** si no, desde el día siguiente al vencimiento se le aplica el interés. Con el
+  vencimiento el 10, el interés corre desde el 11.
+
+El interés es el `valor_mora` de la configuración con la que se emitió la cuota (BS-13), no
+el vigente. Se suma una sola vez a `interes_aplicado`, al `total` y al `saldo_pendiente`, y la
+cuota pasa al estado `vencida`, que mantiene hasta que se termina de pagar. Las cuotas
+pagadas y las anuladas no entran.
+
+Se aplica en tres momentos:
+
+1. **Cron diario del Worker** (`triggers.crons` en `wrangler.jsonc`, 03:05 UTC, que son las
+   00:05 en Argentina): revisa todas las cuotas.
+2. **Al registrar un pago** con fecha posterior al vencimiento, si el cron todavía no había
+   pasado por esa cuota, para que el interés se cobre con ese pago. Si en cambio se carga
+   tarde un pago hecho en término, la mora que ya se había aplicado se quita.
+3. **A mano**, con el endpoint, para cuando se corre la API con node (ahí no hay cron) o
+   para no esperar al día siguiente:
+
+```
+POST /api/cuotas/aplicar-mora
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "ok": true,
+  "aplicadas": 1,
+  "interes_total": 800,
+  "cuotas": [{ "id": 12, "interno_id": 1, "periodo": "2026-10", "interes_aplicado": 800 }]
+}
+```
+
+Es seguro correrlo varias veces: las cuotas que ya están vencidas no vuelven a sumar interés.
+Para probar el cron en local: `npx wrangler dev --test-scheduled` y después abrir
+`http://localhost:8787/__scheduled`.
 
 | Código | Cuándo |
 |--------|--------|

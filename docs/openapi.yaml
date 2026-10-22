@@ -401,8 +401,8 @@ paths:
         están anuladas). Un interno sin cuotas devuelve la lista vacía y el total en cero.
 
         Pide el módulo `cobranzas` y no el de `internos`: un rol de contador puede cobrar sin
-        tener acceso al padrón. `interes_aplicado` viene en cero
-        hasta que se haga el cálculo de la mora (BS-11).
+        tener acceso al padrón. Las cuotas en mora traen el interés en `interes_aplicado`, ya
+        sumado al total y al saldo (BS-11).
       responses:
         '200':
           description: La cuenta corriente
@@ -526,10 +526,10 @@ paths:
         Lo que necesita la pantalla principal de Cobranzas: el listado de cuotas del período
         con los totales de arriba.
 
-        `estado` acepta los del catálogo y además `vencida`, que no es un estado guardado sino
-        una condición: saldo mayor a cero, no anulada y fecha de vencimiento anterior a hoy. Una
-        cuota vencida sigue figurando como `pendiente` o `parcial` en el campo `estado` hasta
-        que esté el cálculo de la mora (BS-11).
+        `estado` acepta los del catálogo y además `vencida`, que se filtra como condición:
+        saldo mayor a cero, no anulada y fecha de vencimiento anterior a hoy. Incluye las que
+        están en mora (estado `vencida`) y las que vencieron con un pago en término, que no
+        llevan interés y siguen como `parcial`.
 
         El `resumen` es de todo el período y **no** aplica `estado` ni `q`: son los indicadores
         de la pantalla, que no cambian al filtrar. No cuenta las anuladas.
@@ -611,6 +611,30 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /cuotas/aplicar-mora:
+    post:
+      tags: [Cobranzas]
+      summary: Aplica el interés por mora a las cuotas vencidas (BS-11)
+      description: |
+        Lo mismo que hace el cron diario del Worker (03:05 UTC), para correrlo a mano.
+
+        Entra en mora la cuota que tiene saldo, no está pagada ni anulada, ya pasó su fecha de
+        vencimiento y no tiene ningún pago registrado hasta ese día inclusive (regla 6: si pagó
+        algo en término no lleva interés; regla 7: si no, se aplica desde el día siguiente al
+        vencimiento).
+
+        El interés es el `valor_mora` de la configuración con la que se emitió la cuota. Se
+        suma a `interes_aplicado`, al total y al saldo, y la cuota pasa a `vencida`. Es seguro
+        correrlo varias veces: las que ya están vencidas no vuelven a sumar interés.
+      responses:
+        '200':
+          description: Cuotas a las que se les aplicó el interés en esta corrida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResultadoMora' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /cuotas/{id}/pagos:
     parameters:
       - $ref: '#/components/parameters/IdCuota'
@@ -619,8 +643,12 @@ paths:
       summary: Registro de pago total o parcial (BS-8)
       description: |
         Aplica un pago a la cuota, descuenta el monto del saldo y recalcula el estado: si el
-        saldo queda en cero pasa a `pagada`, si no a `parcial`. No admite montos mayores al
-        saldo pendiente. Los importes se redondean a centavos.
+        saldo queda en cero pasa a `pagada`, si no a `parcial` (o sigue `vencida` si está en
+        mora). No admite montos mayores al saldo pendiente. Los importes se redondean a centavos.
+
+        La mora (BS-11) se mira por la fecha del pago: si es posterior al vencimiento y la cuota
+        todavía no tenía el interés, se le aplica antes de descontar el pago; si es en término y
+        la cuota ya tenía la mora, se le quita.
 
         Si el medio de pago es **obra social**, `obra_social_id` es obligatorio. Mientras la
         tabla de pagos no tenga columna propia, la obra social queda escrita al principio de
@@ -1204,6 +1232,22 @@ components:
         internos_activos: { type: integer, example: 3 }
         creadas: { type: integer, example: 2 }
         omitidas: { type: integer, description: Ya tenían la cuota del período, example: 1 }
+
+    ResultadoMora:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        aplicadas: { type: integer, description: Cuotas que entraron en mora en esta corrida, example: 1 }
+        interes_total: { type: number, format: float, example: 800 }
+        cuotas:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer, example: 12 }
+              interno_id: { type: integer, example: 1 }
+              periodo: { type: string, description: AAAA-MM, example: 2026-10 }
+              interes_aplicado: { type: number, format: float, example: 800 }
 
     PagoNuevo:
       type: object
