@@ -17,6 +17,7 @@ router.get('/:id', padron, asyncHandler(internos.ficha));
 router.get('/:id/cuenta-corriente', requiereModulo('cobranzas'), asyncHandler(pagos.cuentaCorriente));
 router.post('/', padron, asyncHandler(internos.alta));
 router.post('/:id/baja', padron, asyncHandler(internos.baja));
+router.post('/:id/reingreso', padron, asyncHandler(internos.reingreso));
 router.put('/:id', padron, asyncHandler(internos.modificar));
 
 module.exports = router;

@@ -22,6 +22,13 @@ que se accede por su API HTTP.
 3. Crear las tablas en D1 (una sola vez) con los scripts de la carpeta `db/`:
    `db/schema.sql` y, para tener un usuario de prueba, `db/seed_admin.sql`.
 
+   Sobre una base que ya existía hay que correr además los archivos de migración, una sola vez
+   cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos) y
+   `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo). Son necesarios porque
+   los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
+   creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
+   que la base todavía no tiene.
+
 4. Arrancar la API:
 
    ```
@@ -102,11 +109,12 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
 | GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
 | GET    | `/api/internos`           | módulo `internos`     | Padrón: búsqueda, filtros y paginación (BS-3)   |
-| GET    | `/api/internos/verificar-dni/:dni` | módulo `internos` | Avisa si ya hay un interno activo con ese DNI |
+| GET    | `/api/internos/verificar-dni/:dni` | módulo `internos` | Avisa si el DNI es de un interno activo o de un egresado |
 | GET    | `/api/internos/:id`       | módulo `internos`     | Ficha completa del interno con historial (BS-4) |
 | POST   | `/api/internos`           | módulo `internos`     | Alta de interno (BS-2)                          |
 | PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
 | POST   | `/api/internos/:id/baja`  | módulo `internos`     | Baja lógica del interno con motivo y fecha (BS-6)|
+| POST   | `/api/internos/:id/reingreso` | módulo `internos` | Reingreso: vuelve a activo y abre un legajo nuevo|
 | GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
 | GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
@@ -200,6 +208,7 @@ Errores propios del alta:
 | 400 `FECHA_INVALIDA` | una fecha no tiene formato AAAA-MM-DD, o el ingreso es futuro |
 | 400 `OBRA_SOCIAL_INEXISTENTE` | la obra social indicada no está en el catálogo |
 | 409 `DNI_DUPLICADO` | ya hay un **interno activo** con ese DNI |
+| 409 `DNI_EGRESADO` | la persona ya estuvo internada: hay que reingresarla desde su ficha, no darla de alta otra vez |
 
 **Aviso de DNI repetido antes de guardar.** La pantalla de alta puede consultar el DNI
 apenas se escribe, sin esperar a "Guardar":
@@ -210,12 +219,25 @@ Authorization: Bearer <token>
 ```
 
 ```json
-{ "ok": true, "duplicado": true, "interno": { "id": 7, "dni": "30111222", "apellido": "Perez", "nombre": "Juan" } }
+{
+  "ok": true,
+  "duplicado": false,
+  "interno": null,
+  "egresado": {
+    "id": 7, "dni": "30111222", "apellido": "Ramírez", "nombre": "Cristian",
+    "legajo": "LEG-20261002-0001", "fecha_egreso": "2026-10-10"
+  }
+}
 ```
 
-Si no hay un interno activo con ese DNI responde `"duplicado": false` e `"interno": null`.
+`duplicado` e `interno` son del interno **activo** con ese DNI, si lo hay. `egresado` es la
+persona que ya estuvo internada y egresó, con su último legajo y la fecha en que salió: con eso
+el front avisa apenas se escribe el DNI y ofrece ir a su ficha para reingresarla, en lugar de
+dejar crear otra. Los dos vienen en `null` cuando el DNI no está cargado.
+
 Si el DNI no tiene 7 u 8 dígitos responde 400 `DNI_INVALIDO`, igual que el alta. La consulta
-es solo un aviso: el `POST` lo vuelve a controlar y sigue rechazando el duplicado con 409.
+es solo un aviso: el `POST` lo vuelve a controlar y rechaza con 409 `DNI_DUPLICADO` si hay un
+activo, o 409 `DNI_EGRESADO` si la persona ya estuvo internada.
 
 ### Padrón de internos (BS-3)
 
@@ -385,6 +407,62 @@ cuotas nuevas.
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD, es futura o es anterior al ingreso |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
 | 409 `INTERNO_YA_EGRESADO` | el interno ya estaba dado de baja |
+
+La baja además **cierra el legajo abierto**: le completa `fecha_egreso` con la fecha que se
+informó y `motivo_egreso` con el motivo.
+
+### Reingreso de un interno
+
+Una persona es **una sola ficha** y cada estadía es **un legajo**. Si alguien egresa y vuelve,
+no se da de alta de nuevo: se lo reingresa desde su ficha, y así conserva sus contactos, su
+historial de estados, todos sus legajos y una sola cuenta corriente, con la deuda de las
+estadías anteriores incluida.
+
+```
+POST /api/internos/7/reingreso
+Authorization: Bearer <token>
+
+{
+  "fecha_ingreso": "2026-10-23",
+  "motivo": "Vuelve después de la internación en el hospital"
+}
+```
+
+Los dos campos son opcionales: sin `fecha_ingreso` se usa la del día, y sin `motivo` queda
+"Reingreso". El interno vuelve a `activo`, se le actualiza `fecha_ingreso` (la del ingreso
+actual; la del primero queda guardada en su primer legajo), se abre un legajo nuevo y queda
+la fila en el historial de estados. Responde 200 con la ficha completa.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id no es un entero mayor a cero |
+| 400 `FECHA_INVALIDA` | no es AAAA-MM-DD, es futura o es anterior al egreso del último legajo |
+| 400 `MOTIVO_INVALIDO` | el motivo supera los 500 caracteres |
+| 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
+| 409 `INTERNO_YA_ACTIVO` | el interno no está egresado |
+| 409 `DNI_DUPLICADO` | hay otro interno activo con el mismo DNI |
+
+El ciclo completo queda así:
+
+| Acción | Interno | Legajos |
+|---|---|---|
+| Alta (persona nueva) | se crea `activo` | abre el primero |
+| Baja | pasa a `egresado` | cierra el actual con su fecha y motivo |
+| Reingreso | vuelve a `activo` | abre uno nuevo |
+| Alta con el DNI de un egresado | se rechaza con `DNI_EGRESADO` | — |
+
+El legajo abierto es el que tiene `fecha_egreso` en `null`, y un interno activo tiene siempre
+uno solo. En la ficha los legajos van del más viejo al más nuevo, así que el último es el
+actual:
+
+```json
+"legajos": [
+  { "id": 1, "numero": "LEG-20261002-0001", "fecha_apertura": "2026-10-02 23:15:02",
+    "fecha_ingreso": "2026-10-02", "fecha_egreso": "2026-10-10", "motivo_egreso": "Alta médica" },
+  { "id": 9, "numero": "LEG-20261023-0001", "fecha_apertura": "2026-10-23 10:04:51",
+    "fecha_ingreso": "2026-10-23", "fecha_egreso": null, "motivo_egreso": null }
+]
+```
 
 ### Parámetros de cobranza (BS-13)
 

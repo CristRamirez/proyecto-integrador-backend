@@ -230,15 +230,19 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
-        '409': { $ref: '#/components/responses/DniDuplicado' }
+        '409': { $ref: '#/components/responses/DniRepetido' }
 
   /internos/verificar-dni/{dni}:
     get:
       tags: [Internos]
-      summary: Avisar si el DNI ya es de un interno activo
+      summary: Avisar si el DNI ya es de un interno activo o de un egresado
       description: |
         Para avisar en la pantalla de alta apenas se escribe el DNI. Es solo un aviso:
         el alta lo vuelve a controlar al guardar.
+
+        `interno` es el activo con ese DNI y `egresado` la persona que ya estuvo internada y
+        salió. Con el segundo, el front ofrece ir a su ficha y reingresarla en vez de crear
+        otra ficha.
       parameters:
         - name: dni
           in: path
@@ -257,12 +261,23 @@ paths:
                   interno:
                     type: object
                     nullable: true
-                    description: '`null` si no está repetido'
+                    description: 'El interno activo con ese DNI, o `null`'
                     properties:
                       id: { type: integer, example: 7 }
                       dni: { type: string, example: '30111222' }
                       apellido: { type: string, example: Perez }
                       nombre: { type: string, example: Juan }
+                  egresado:
+                    type: object
+                    nullable: true
+                    description: 'La persona que ya estuvo internada y egresó, o `null`'
+                    properties:
+                      id: { type: integer, example: 7 }
+                      dni: { type: string, example: '30111222' }
+                      apellido: { type: string, example: Ramírez }
+                      nombre: { type: string, example: Cristian }
+                      legajo: { type: string, nullable: true, example: LEG-20261002-0001 }
+                      fecha_egreso: { type: string, format: date, nullable: true, example: '2026-10-10' }
         '400':
           description: '`DNI_INVALIDO`: no es un número de 7 u 8 dígitos'
           content:
@@ -341,6 +356,53 @@ paths:
         '404': { $ref: '#/components/responses/InternoNoEncontrado' }
         '409': { $ref: '#/components/responses/DniDuplicado' }
 
+  /internos/{id}/reingreso:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+    post:
+      tags: [Internos]
+      summary: Reingreso de un interno
+      description: |
+        Una persona es una sola ficha y cada estadía es un legajo: si alguien egresa y vuelve,
+        no se da de alta de nuevo, se lo reingresa desde su ficha. Así conserva sus contactos,
+        su historial de estados, todos sus legajos y una sola cuenta corriente, con la deuda de
+        las estadías anteriores incluida.
+
+        El interno vuelve a `activo`, se le actualiza `fecha_ingreso` (la del ingreso actual;
+        la del primero queda en su primer legajo), se abre un legajo nuevo y queda la fila en el
+        historial de estados.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternoReingreso' }
+            example:
+              fecha_ingreso: '2026-10-23'
+              motivo: Vuelve después de la internación en el hospital
+      responses:
+        '200':
+          description: Interno reingresado, devuelve la ficha completa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  interno: { $ref: '#/components/schemas/InternoFichaCompleta' }
+        '400':
+          description: '`ID_INVALIDO`, `FECHA_INVALIDA` (mal formada, futura o anterior al egreso anterior) o `MOTIVO_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+        '409':
+          description: '`INTERNO_YA_ACTIVO` (no está egresado) o `DNI_DUPLICADO` (hay otro activo con ese DNI)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /internos/{id}/baja:
     parameters:
       - $ref: '#/components/parameters/IdInterno'
@@ -355,8 +417,11 @@ paths:
         `motivo` y `fecha_egreso` son obligatorios. La fecha no puede ser futura ni anterior a
         la fecha de ingreso del interno.
 
-        Después de la baja el DNI queda libre para una nueva alta, porque es único solo entre
-        los internos activos.
+        La baja además cierra el legajo abierto: le completa `fecha_egreso` con la fecha que se
+        informó y `motivo_egreso` con el motivo.
+
+        Si la persona vuelve, no se la da de alta de nuevo: se usa `POST /internos/{id}/reingreso`,
+        que abre un legajo nuevo sobre la misma ficha.
       requestBody:
         required: true
         content:
@@ -1139,6 +1204,13 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    DniRepetido:
+      description: |
+        `DNI_DUPLICADO`: ya hay un interno activo con ese DNI.
+        `DNI_EGRESADO`: la persona ya estuvo internada; hay que reingresarla desde su ficha.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     DniDuplicado:
       description: '`DNI_DUPLICADO`: ya hay un interno activo con ese DNI'
       content:
@@ -1223,10 +1295,28 @@ components:
 
     Legajo:
       type: object
+      description: Una estadía. El legajo abierto es el que tiene fecha_egreso en null.
       properties:
         id: { type: integer, example: 1 }
         numero: { type: string, example: LEG-20261002-0001 }
-        fecha_apertura: { type: string, example: '2026-10-02 23:15:02' }
+        fecha_apertura: { type: string, description: Cuándo se cargó, example: '2026-10-02 23:15:02' }
+        fecha_ingreso: { type: string, format: date, nullable: true, example: '2026-10-02' }
+        fecha_egreso: { type: string, format: date, nullable: true, example: '2026-10-10' }
+        motivo_egreso: { type: string, nullable: true, example: Alta médica }
+
+    InternoReingreso:
+      type: object
+      properties:
+        fecha_ingreso:
+          type: string
+          format: date
+          description: Por defecto la del día. No puede ser futura ni anterior al egreso anterior.
+          example: '2026-10-23'
+        motivo:
+          type: string
+          maxLength: 500
+          description: Por defecto "Reingreso".
+          example: Vuelve después de la internación en el hospital
 
     InternoAlta:
       type: object

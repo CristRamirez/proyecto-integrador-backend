@@ -177,6 +177,14 @@ async function alta(req, res) {
     throw new ApiError(409, 'Ya hay un interno activo con ese DNI', 'DNI_DUPLICADO');
   }
 
+  if (await internos.buscarEgresadoPorDni(datos.dni)) {
+    throw new ApiError(
+      409,
+      'Esta persona ya estuvo internada: registrá el reingreso desde su ficha',
+      'DNI_EGRESADO'
+    );
+  }
+
   const estado = await catalogos.buscarEstadoPorNombre(ESTADO_INICIAL);
 
   if (!estado) {
@@ -187,7 +195,7 @@ async function alta(req, res) {
 
   const internoId = await internos.crear(datos);
 
-  await legajos.crear(internoId, await legajos.generarNumero());
+  await legajos.crear(internoId, await legajos.generarNumero(), datos.fechaIngreso);
   await internos.agregarContactos(internoId, contactos);
   await internos.registrarEstado(internoId, estado.id, req.usuario.id);
 
@@ -291,9 +299,11 @@ async function ficha(req, res) {
 // La usa la pantalla de alta para avisar del DNI repetido apenas se escribe,
 // antes de tocar "Guardar". El alta lo vuelve a controlar igual al guardar.
 async function verificarDni(req, res) {
-  const interno = await internos.buscarActivoPorDni(leerDni(req.params.dni));
+  const dni = leerDni(req.params.dni);
+  const interno = await internos.buscarActivoPorDni(dni);
+  const egresado = await internos.buscarEgresadoPorDni(dni);
 
-  res.json({ ok: true, duplicado: Boolean(interno), interno });
+  res.json({ ok: true, duplicado: Boolean(interno), interno, egresado });
 }
 
 function leerMotivo(valor) {
@@ -358,6 +368,67 @@ async function baja(req, res) {
 
   await internos.actualizar(id, { estado_id: estado.id }, req.usuario.id);
   await internos.registrarEstado(id, estado.id, req.usuario.id, motivo, `${fechaEgreso} ${horaActual()}`);
+  await legajos.cerrarAbierto(id, fechaEgreso, motivo);
+
+  res.json({ ok: true, interno: await internos.obtenerFicha(id) });
+}
+
+function leerMotivoOpcional(valor, porDefecto) {
+  const motivo = texto(valor);
+
+  if (!motivo) {
+    return porDefecto;
+  }
+
+  if (motivo.length > MAXIMO_MOTIVO) {
+    throw ApiError.solicitudInvalida(
+      `El motivo no puede superar los ${MAXIMO_MOTIVO} caracteres`,
+      'MOTIVO_INVALIDO'
+    );
+  }
+
+  return motivo;
+}
+
+async function reingreso(req, res) {
+  const id = leerIdInterno(req.params.id);
+  const cuerpo = req.body || {};
+  const actual = await internos.obtenerFichaBasica(id);
+
+  if (!actual) {
+    throw ApiError.noEncontrado('El interno no existe', 'INTERNO_NO_ENCONTRADO');
+  }
+
+  if (actual.estado !== ESTADO_BAJA) {
+    throw new ApiError(409, 'El interno no está egresado', 'INTERNO_YA_ACTIVO');
+  }
+
+  const repetido = await internos.buscarActivoPorDni(actual.dni);
+
+  if (repetido) {
+    throw new ApiError(409, 'Ya hay un interno activo con ese DNI', 'DNI_DUPLICADO');
+  }
+
+  const fechaIngreso = leerFechaIngreso(cuerpo.fecha_ingreso);
+  const motivo = leerMotivoOpcional(cuerpo.motivo, 'Reingreso');
+  const egresoAnterior = await legajos.ultimoEgreso(id);
+
+  if (egresoAnterior && fechaIngreso < egresoAnterior) {
+    throw ApiError.solicitudInvalida(
+      'La fecha de ingreso no puede ser anterior a la del egreso anterior',
+      'FECHA_INVALIDA'
+    );
+  }
+
+  const estado = await catalogos.buscarEstadoPorNombre(ESTADO_INICIAL);
+
+  if (!estado) {
+    throw new ApiError(500, 'Falta el estado inicial en la base de datos', 'ESTADO_INICIAL_FALTANTE');
+  }
+
+  await internos.actualizar(id, { estado_id: estado.id, fecha_ingreso: fechaIngreso }, req.usuario.id);
+  await legajos.crear(id, await legajos.generarNumero(), fechaIngreso);
+  await internos.registrarEstado(id, estado.id, req.usuario.id, motivo, `${fechaIngreso} ${horaActual()}`);
 
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });
 }
@@ -448,4 +519,4 @@ async function modificar(req, res) {
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });
 }
 
-module.exports = { alta, listar, verificarDni, ficha, modificar, baja };
+module.exports = { alta, listar, verificarDni, ficha, modificar, baja, reingreso };

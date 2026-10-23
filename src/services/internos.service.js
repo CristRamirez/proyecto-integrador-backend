@@ -89,6 +89,34 @@ function ultimoLegajo() {
     .limit(1)})`;
 }
 
+function ultimoLegajoCampo(columna) {
+  return sql`(${db()
+    .select({ valor: columna })
+    .from(tablaLegajos)
+    .where(eq(tablaLegajos.interno_id, internos.id))
+    .orderBy(desc(tablaLegajos.id))
+    .limit(1)})`;
+}
+
+async function buscarEgresadoPorDni(dni) {
+  const [fila] = await db()
+    .select({
+      id: internos.id,
+      dni: internos.dni,
+      apellido: internos.apellido,
+      nombre: internos.nombre,
+      legajo: ultimoLegajo(),
+      fecha_egreso: ultimoLegajoCampo(tablaLegajos.fecha_egreso),
+    })
+    .from(internos)
+    .innerJoin(estados, eq(estados.id, internos.estado_id))
+    .where(and(eq(internos.dni, dni), eq(estados.nombre, 'egresado')))
+    .orderBy(desc(internos.id))
+    .limit(1);
+
+  return fila || null;
+}
+
 // Un interno se considera duplicado solo si el DNI ya existe entre los activos
 // (RN6): los egresados pueden tener el mismo DNI si algún día vuelven a ingresar.
 async function buscarActivoPorDni(dni) {
@@ -304,6 +332,7 @@ async function buscar({ palabras = [], estadoId = null, judicializado = null, pa
 
 module.exports = {
   buscar,
+  buscarEgresadoPorDni,
   coincideCon,
   ultimoLegajo,
   buscarActivoPorDni,
