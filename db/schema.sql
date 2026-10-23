@@ -102,6 +102,9 @@ CREATE TABLE IF NOT EXISTS legajos (
   interno_id     INTEGER NOT NULL,                  -- 1:N con internos (sin UNIQUE)
   numero         TEXT    NOT NULL UNIQUE,           -- formato LEG-AAAAMMDD-NNNN, inmutable
   fecha_apertura TEXT    NOT NULL DEFAULT (datetime('now')),
+  fecha_ingreso  TEXT,                              -- inicio de la estadía
+  fecha_egreso   TEXT,                              -- NULL mientras el legajo está abierto
+  motivo_egreso  TEXT,
   FOREIGN KEY (interno_id) REFERENCES internos(id)
 );
 

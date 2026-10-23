@@ -89,6 +89,9 @@ const legajos = sqliteTable('legajos', {
   interno_id: integer('interno_id').notNull(),
   numero: text('numero').notNull(),
   fecha_apertura: text('fecha_apertura').notNull().default(sql`(datetime('now'))`),
+  fecha_ingreso: text('fecha_ingreso'),
+  fecha_egreso: text('fecha_egreso'),
+  motivo_egreso: text('motivo_egreso'),
 });
 
 const contactosFamiliares = sqliteTable('contactos_familiares', {
