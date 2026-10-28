@@ -178,6 +178,12 @@ const egresos = sqliteTable('egresos', {
   observaciones: text('observaciones'),
   usuario_id: integer('usuario_id'),
   creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+  estado: text('estado').notNull().default('activo'),
+  motivo_anulacion: text('motivo_anulacion'),
+  anulado_por: integer('anulado_por'),
+  anulado_en: text('anulado_en'),
+  modificado_por: integer('modificado_por'),
+  modificado_en: text('modificado_en'),
 });
 
 module.exports = {

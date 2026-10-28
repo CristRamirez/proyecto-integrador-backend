@@ -127,6 +127,8 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/egresos`            | módulo `cobranzas`    | Egresos del período, con totales por categoría (BS-12)|
 | GET    | `/api/egresos/categorias` | módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
 | POST   | `/api/egresos`            | módulo `cobranzas`    | Registra un egreso institucional (BS-12)        |
+| PUT    | `/api/egresos/:id`        | módulo `cobranzas`    | Edita un egreso que no esté anulado (BS-12)     |
+| POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -730,7 +732,9 @@ del egreso más reciente al más viejo. El filtro de categoría no distingue may
 
 El `resumen` es de **todo el período y sin aplicar el filtro**, igual que en el listado de
 cuotas: trae el total, la cantidad de movimientos y el desglose `por_categoria`, ordenado de
-mayor a menor gasto.
+mayor a menor gasto. Cada egreso trae su `estado` (`activo` o `anulado`): los anulados se
+listan, con `motivo_anulacion`, `anulado_por` y `anulado_en`, pero **no suman** en el resumen;
+solo se cuentan en `resumen.anulados`.
 
 ```json
 {
@@ -739,6 +743,7 @@ mayor a menor gasto.
   "resumen": {
     "cantidad": 4,
     "total": 385000.5,
+    "anulados": 1,
     "por_categoria": [
       { "categoria": "sueldos", "cantidad": 1, "total": 300000 },
       { "categoria": "servicios", "cantidad": 2, "total": 67000.5 }
@@ -755,14 +760,35 @@ resumen de `GET /api/cuotas` del mismo período.
 `GET /api/egresos/categorias` devuelve las categorías que ya se usaron alguna vez, ordenadas
 alfabéticamente, para ofrecerlas en el formulario sin obligar a escribirlas de nuevo.
 
+**Edición.** `PUT /api/egresos/:id` recibe los mismos campos que el alta, con las mismas
+validaciones, y responde con el egreso actualizado. Si no viene la fecha se deja la que tenía.
+Un egreso anulado no se puede editar.
+
+**Anulación.** Un egreso cargado mal no se borra: se anula, igual que una cuota o la baja de
+un interno. Queda con el motivo, quién lo anuló y cuándo, y responde con el egreso.
+
+```
+POST /api/egresos/3/anular
+Authorization: Bearer <token>
+
+{ "motivo": "Cargado dos veces" }
+```
+
+Para una base ya creada hay que correr una vez `db/migracion_egresos_anulacion.sql`, que le
+agrega a `egresos` el `estado` y las columnas de la anulación y de la edición.
+
 | Código | Cuándo |
 |--------|--------|
-| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto o el medio de pago |
+| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto o el medio de pago (o el motivo, al anular) |
 | 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
 | 400 `MEDIO_PAGO_INEXISTENTE` | el medio de pago no está en el catálogo |
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD o es futura |
 | 400 `CONCEPTO_INVALIDO`, `CATEGORIA_INVALIDA`, `COMPROBANTE_INVALIDO`, `OBSERVACIONES_INVALIDAS` | el texto supera el largo permitido |
 | 400 `PERIODO_INVALIDO`, `PAGINACION_INVALIDA` | en el listado, igual que en el de cuotas |
+| 400 `ID_INVALIDO`, `MOTIVO_INVALIDO` | el id no es un entero mayor a cero; el motivo supera los 500 caracteres |
+| 404 `EGRESO_NO_ENCONTRADO` | al editar o anular un egreso que no existe |
+| 409 `EGRESO_ANULADO` | se quiso editar un egreso anulado |
+| 409 `EGRESO_YA_ANULADO` | se quiso anular un egreso que ya estaba anulado |
 
 ### Interés por mora (BS-11)
 
