@@ -28,6 +28,8 @@ tags:
     description: ABM de módulos (solo rol administrador)
   - name: Roles
     description: Permisos de cada rol (solo rol administrador)
+  - name: Usuarios
+    description: ABM de usuarios (solo rol administrador)
   - name: Parámetros
     description: Valores con los que se generan las cuotas (solo rol administrador)
   - name: Cobranzas
@@ -1296,6 +1298,219 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
   # ------------------------------------------------------------------
+  # USUARIOS
+  # ------------------------------------------------------------------
+  /usuarios:
+    get:
+      tags: [Usuarios]
+      summary: Listar usuarios
+      description: |
+        Con búsqueda, filtros y paginación. Ordena por nombre de usuario.
+
+        Ninguna respuesta del grupo trae `password_hash`: la contraseña se guarda hasheada
+        con bcrypt y no sale de la base.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Busca en el nombre de usuario, el nombre y apellido y el email, sin distinguir mayúsculas ni acentos.
+          schema: { type: string }
+          example: carrasco
+        - { name: rol_id, in: query, required: false, schema: { type: integer, minimum: 1 }, example: 2 }
+        - name: activo
+          in: query
+          required: false
+          description: Sin el parámetro vienen los habilitados y los deshabilitados.
+          schema: { type: string, enum: ['1', '0', 'true', 'false'] }
+        - { name: pagina, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: por_pagina, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Usuarios encontrados
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  usuarios:
+                    type: array
+                    items: { $ref: '#/components/schemas/Usuario' }
+                  paginacion: { $ref: '#/components/schemas/Paginacion' }
+        '400':
+          description: '`PAGINACION_INVALIDA`, `DATOS_INVALIDOS` (activo) o `ROL_INEXISTENTE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+    post:
+      tags: [Usuarios]
+      summary: Alta de usuario
+      description: |
+        El nombre de usuario se guarda en minúsculas y no pueden convivir dos que solo se
+        diferencien por las mayúsculas, porque el login tampoco las distingue.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UsuarioNuevo' }
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaUsuario' }
+        '400':
+          description: |
+            `DATOS_INCOMPLETOS`, `NOMBRE_USUARIO_INVALIDO`, `NOMBRE_INVALIDO`, `EMAIL_INVALIDO`,
+            `PASSWORD_INVALIDA` o `ROL_INEXISTENTE`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/UsuarioRepetido' }
+
+  /usuarios/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdUsuario'
+    get:
+      tags: [Usuarios]
+      summary: Un usuario
+      responses:
+        '200':
+          description: El usuario pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaUsuario' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/UsuarioNoEncontrado' }
+    put:
+      tags: [Usuarios]
+      summary: Modificar los datos y el rol
+      description: |
+        Reemplaza los datos editables, el rol incluido; con `email` vacío o `null` se borra el
+        que tenía. La contraseña y el estado tienen sus propios endpoints.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UsuarioEditado' }
+      responses:
+        '200':
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaUsuario' }
+        '400':
+          description: |
+            `ID_INVALIDO`, `DATOS_INCOMPLETOS`, `NOMBRE_USUARIO_INVALIDO`, `NOMBRE_INVALIDO`,
+            `EMAIL_INVALIDO` o `ROL_INEXISTENTE`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/UsuarioNoEncontrado' }
+        '409':
+          description: |
+            `USUARIO_DUPLICADO`, `EMAIL_DUPLICADO` o `ULTIMO_ADMINISTRADOR` (le saca el rol al
+            único administrador activo)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /usuarios/{id}/password:
+    parameters:
+      - $ref: '#/components/parameters/IdUsuario'
+    put:
+      tags: [Usuarios]
+      summary: Reiniciar la contraseña
+      description: |
+        El reinicio que hace el administrador cuando alguien se olvidó la contraseña. Además
+        de cambiarla deja los intentos fallidos en cero y saca el bloqueo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordNueva' }
+      responses:
+        '200':
+          description: Contraseña cambiada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaUsuario' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` o `PASSWORD_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/UsuarioNoEncontrado' }
+
+  /usuarios/{id}/estado:
+    parameters:
+      - $ref: '#/components/parameters/IdUsuario'
+    put:
+      tags: [Usuarios]
+      summary: Baja y alta lógica
+      description: |
+        Los usuarios no se borran: quedan referenciados en todo lo que cargaron, así que la
+        baja es lógica. Uno deshabilitado no puede iniciar sesión (403 `USUARIO_INACTIVO` en
+        el login).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstadoUsuario' }
+      responses:
+        '200':
+          description: Estado cambiado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaUsuario' }
+        '400':
+          description: '`ID_INVALIDO` o `DATOS_INVALIDOS` (activo no es true ni false)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/UsuarioNoEncontrado' }
+        '409':
+          description: |
+            `USUARIO_ES_PROPIO` (se está deshabilitando a sí mismo) o `ULTIMO_ADMINISTRADOR`
+            (es el único administrador activo)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /usuarios/{id}/desbloquear:
+    parameters:
+      - $ref: '#/components/parameters/IdUsuario'
+    post:
+      tags: [Usuarios]
+      summary: Sacar el bloqueo por intentos fallidos
+      description: |
+        Para no esperar los 5 minutos del bloqueo de BS-1: deja el contador de intentos en
+        cero y `bloqueado_hasta` en `null`.
+      responses:
+        '200':
+          description: Usuario desbloqueado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaUsuario' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/UsuarioNoEncontrado' }
+
+  # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------
   /ejemplo/publico:
@@ -1357,6 +1572,12 @@ components:
       required: true
       schema: { type: integer, minimum: 1, example: 3 }
 
+    IdUsuario:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, example: 2 }
+
   responses:
     SolicitudInvalida:
       description: Faltan datos o el JSON está mal armado (`DATOS_INCOMPLETOS`, `JSON_INVALIDO`)
@@ -1397,6 +1618,18 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     DniDuplicado:
       description: '`DNI_DUPLICADO`: ya hay un interno activo con ese DNI'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UsuarioNoEncontrado:
+      description: '`USUARIO_NO_ENCONTRADO`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UsuarioRepetido:
+      description: |
+        `USUARIO_DUPLICADO`: ya hay un usuario con ese nombre de usuario.
+        `EMAIL_DUPLICADO`: ya hay un usuario con ese email.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1742,6 +1975,70 @@ components:
         usuario_id: { type: integer, nullable: true, description: Null cuando lo hizo el sistema (cron de mora), example: 1 }
         usuario: { type: string, nullable: true, example: admin }
         usuario_nombre: { type: string, nullable: true, example: Administrador de prueba }
+
+    Usuario:
+      type: object
+      properties:
+        id: { type: integer, example: 2 }
+        nombre_usuario: { type: string, example: mcarrasco }
+        nombre_completo: { type: string, example: Marcos Carrasco }
+        email: { type: string, nullable: true, example: marcos@proyecto.local }
+        rol_id: { type: integer, example: 2 }
+        rol: { type: string, example: empleado }
+        activo: { type: integer, enum: [0, 1], example: 1 }
+        bloqueado_hasta: { type: string, nullable: true, example: null }
+        bloqueado:
+          type: boolean
+          description: Si `bloqueado_hasta` todavía no pasó. Es el que mira la pantalla.
+          example: false
+        creado_en: { type: string, example: '2026-10-28 12:40:11' }
+
+    RespuestaUsuario:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        usuario: { $ref: '#/components/schemas/Usuario' }
+
+    UsuarioNuevo:
+      type: object
+      required: [nombre_usuario, nombre_completo, password, rol_id]
+      properties:
+        nombre_usuario:
+          type: string
+          minLength: 3
+          maxLength: 40
+          description: Se guarda en minúsculas. Letras sin acento, números, punto, guion y guion bajo.
+          example: mcarrasco
+        nombre_completo: { type: string, maxLength: 120, example: Marcos Carrasco }
+        email: { type: string, maxLength: 120, nullable: true, example: marcos@proyecto.local }
+        password: { type: string, minLength: 8, maxLength: 72, example: marcos1234 }
+        rol_id: { type: integer, description: 'Del catálogo /roles', example: 2 }
+
+    UsuarioEditado:
+      type: object
+      required: [nombre_usuario, nombre_completo, rol_id]
+      properties:
+        nombre_usuario: { type: string, minLength: 3, maxLength: 40, example: mcarrasco }
+        nombre_completo: { type: string, maxLength: 120, example: Marcos A. Carrasco }
+        email:
+          type: string
+          maxLength: 120
+          nullable: true
+          description: Vacío o `null` borra el que tenía.
+          example: ''
+        rol_id: { type: integer, example: 3 }
+
+    PasswordNueva:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 8, maxLength: 72, example: nuevaclave1 }
+
+    EstadoUsuario:
+      type: object
+      required: [activo]
+      properties:
+        activo: { type: boolean, example: false }
 
     Paginacion:
       type: object
