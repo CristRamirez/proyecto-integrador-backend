@@ -345,3 +345,4 @@ CREATE TABLE IF NOT EXISTS auditoria (
 
 CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_auditoria_entidad ON auditoria(entidad, entidad_id);
+CREATE INDEX IF NOT EXISTS idx_auditoria_fecha   ON auditoria(fecha);

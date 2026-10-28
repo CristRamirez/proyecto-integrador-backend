@@ -1,5 +1,6 @@
 const ApiError = require('../utils/ApiError');
 const parametros = require('../services/parametros.service');
+const auditoria = require('../services/auditoria.service');
 
 const MAXIMO_OBSERVACIONES = 500;
 
@@ -82,7 +83,19 @@ async function guardar(req, res) {
     throw ApiError.solicitudInvalida('El valor de la cuota tiene que ser mayor a cero', 'MONTO_INVALIDO');
   }
 
-  res.status(201).json({ ok: true, configuracion: await parametros.guardar(datos, req.usuario.id) });
+  const anterior = await parametros.obtenerVigente();
+  const configuracion = await parametros.guardar(datos, req.usuario.id);
+
+  // Guardar parámetros nuevos archiva los anteriores: queda como alta de una
+  // configuración, con los valores que reemplaza.
+  await auditoria.registrar(req.usuario.id, auditoria.ACCIONES.ALTA, 'configuracion_cuotas', configuracion ? configuracion.id : null, {
+    valor_cuota: datos.valorCuota,
+    valor_mora: datos.valorMora,
+    dia_vencimiento: datos.diaVencimiento,
+    reemplaza_a: anterior ? anterior.id : null,
+  });
+
+  res.status(201).json({ ok: true, configuracion });
 }
 
 module.exports = { vigente, historico, guardar };

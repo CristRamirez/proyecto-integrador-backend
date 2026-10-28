@@ -1,6 +1,9 @@
 const ApiError = require('../utils/ApiError');
 const egresos = require('../services/egresos.service');
 const catalogos = require('../services/catalogos.service');
+const auditoria = require('../services/auditoria.service');
+
+const { ACCIONES } = auditoria;
 
 const ANIO_MINIMO = 2020;
 const ANIO_MAXIMO = 2100;
@@ -169,6 +172,13 @@ async function registrar(req, res) {
   const datos = await leerDatos(req.body || {}, hoy());
   const id = await egresos.crear({ ...datos, usuarioId: req.usuario.id });
 
+  await auditoria.registrar(req.usuario.id, ACCIONES.ALTA, 'egresos', id, {
+    concepto: datos.concepto,
+    categoria: datos.categoria,
+    monto: datos.monto,
+    fecha: datos.fecha,
+  });
+
   res.status(201).json({ ok: true, egreso: await egresos.obtener(id) });
 }
 
@@ -190,6 +200,21 @@ async function modificar(req, res) {
   if (!(await egresos.actualizar(id, datos, req.usuario.id))) {
     throw new ApiError(409, 'El egreso está anulado', 'EGRESO_ANULADO');
   }
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.MODIFICACION, 'egresos', id, {
+    cambios: auditoria.cambios(
+      { ...actual, fecha: String(actual.fecha).slice(0, 10) },
+      {
+        concepto: datos.concepto,
+        categoria: datos.categoria,
+        monto: datos.monto,
+        fecha: datos.fecha,
+        comprobante: datos.comprobante,
+        observaciones: datos.observaciones,
+        medio_pago_id: datos.medioPagoId,
+      }
+    ),
+  });
 
   res.json({ ok: true, egreso: await egresos.obtener(id) });
 }
@@ -231,6 +256,12 @@ async function anular(req, res) {
   if (!(await egresos.anular(id, motivo, req.usuario.id))) {
     throw new ApiError(409, 'El egreso ya está anulado', 'EGRESO_YA_ANULADO');
   }
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.ANULACION, 'egresos', id, {
+    motivo,
+    concepto: actual.concepto,
+    monto: actual.monto,
+  });
 
   res.json({ ok: true, egreso: await egresos.obtener(id) });
 }

@@ -186,6 +186,20 @@ const egresos = sqliteTable('egresos', {
   modificado_en: text('modificado_en'),
 });
 
+// ------------------------------------------------------------
+// AUDITORÍA
+// ------------------------------------------------------------
+
+const auditoria = sqliteTable('auditoria', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  usuario_id: integer('usuario_id'),
+  accion: text('accion').notNull(),
+  entidad: text('entidad').notNull(),
+  entidad_id: integer('entidad_id'),
+  detalle: text('detalle'),
+  fecha: text('fecha').notNull().default(sql`(datetime('now'))`),
+});
+
 module.exports = {
   roles,
   usuarios,
@@ -203,4 +217,5 @@ module.exports = {
   mediosPago,
   pagos,
   egresos,
+  auditoria,
 };

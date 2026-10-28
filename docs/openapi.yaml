@@ -32,6 +32,8 @@ tags:
     description: Valores con los que se generan las cuotas (solo rol administrador)
   - name: Cobranzas
     description: Cuotas, pagos y egresos
+  - name: Auditoría
+    description: Registro de altas, modificaciones y bajas (solo rol administrador)
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -967,6 +969,84 @@ paths:
         '403': { $ref: '#/components/responses/SinPermiso' }
 
   # ------------------------------------------------------------------
+  # AUDITORÍA
+  # ------------------------------------------------------------------
+  /auditoria:
+    get:
+      tags: [Auditoría]
+      summary: Registro de auditoría (regla 13)
+      description: |
+        Toda alta, modificación y baja del sistema, con el usuario que la hizo y la fecha y hora
+        (UTC), del registro más nuevo al más viejo. Todos los filtros son opcionales y se
+        combinan. Las fechas `desde` y `hasta` son días enteros e inclusivos.
+
+        Acciones que se registran: `alta`, `modificacion`, `baja`, `reingreso`, `anulacion`,
+        `generacion` (cuotas del período), `mora` (manual o del cron diario, que va sin
+        usuario) y `login`. En las modificaciones, `detalle.cambios` trae
+        `{ campo: { antes, despues } }` solo con lo que cambió.
+      parameters:
+        - { name: usuario_id, in: query, required: false, schema: { type: integer, minimum: 1 }, example: 1 }
+        - { name: accion, in: query, required: false, schema: { type: string }, example: baja }
+        - { name: entidad, in: query, required: false, description: 'Tabla afectada (internos, pagos, egresos...)', schema: { type: string }, example: internos }
+        - { name: desde, in: query, required: false, schema: { type: string, format: date }, example: '2026-10-01' }
+        - { name: hasta, in: query, required: false, schema: { type: string, format: date }, example: '2026-10-31' }
+        - { name: pagina, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: por_pagina, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Los registros que cumplen los filtros, con la paginación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  registros:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistroAuditoria' }
+                  paginacion: { $ref: '#/components/schemas/Paginacion' }
+        '400':
+          description: '`ID_INVALIDO` (usuario_id), `FECHA_INVALIDA` (mal formada o desde > hasta) o `PAGINACION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /auditoria/filtros:
+    get:
+      tags: [Auditoría]
+      summary: Opciones para los filtros de la pantalla de auditoría
+      description: Las acciones y entidades que ya aparecen en el registro, y todos los usuarios.
+      responses:
+        '200':
+          description: Opciones de los desplegables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  acciones:
+                    type: array
+                    items: { type: string }
+                    example: [alta, baja, login, modificacion]
+                  entidades:
+                    type: array
+                    items: { type: string }
+                    example: [egresos, internos, pagos]
+                  usuarios:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, example: 1 }
+                        usuario: { type: string, example: admin }
+                        nombre: { type: string, nullable: true, example: Administrador de prueba }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  # ------------------------------------------------------------------
   # CATÁLOGOS
   # ------------------------------------------------------------------
   /estados:
@@ -1646,6 +1726,22 @@ components:
               categoria: { type: string, example: sueldos }
               cantidad: { type: integer, example: 1 }
               total: { type: number, format: float, example: 300000 }
+
+    RegistroAuditoria:
+      type: object
+      properties:
+        id: { type: integer, example: 42 }
+        fecha: { type: string, description: 'AAAA-MM-DD HH:MM:SS, en UTC', example: '2026-10-28 14:05:31' }
+        accion: { type: string, example: modificacion }
+        entidad: { type: string, example: egresos }
+        entidad_id: { type: integer, nullable: true, description: Null en las operaciones sobre muchos registros (generar cuotas, mora), example: 3 }
+        detalle:
+          type: object
+          nullable: true
+          example: { cambios: { monto: { antes: 45000.5, despues: 47000 } } }
+        usuario_id: { type: integer, nullable: true, description: Null cuando lo hizo el sistema (cron de mora), example: 1 }
+        usuario: { type: string, nullable: true, example: admin }
+        usuario_nombre: { type: string, nullable: true, example: Administrador de prueba }
 
     Paginacion:
       type: object

@@ -129,6 +129,8 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/egresos`            | módulo `cobranzas`    | Registra un egreso institucional (BS-12)        |
 | PUT    | `/api/egresos/:id`        | módulo `cobranzas`    | Edita un egreso que no esté anulado (BS-12)     |
 | POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
+| GET    | `/api/auditoria`          | rol `administrador`   | Registro de auditoría, filtrable por usuario, acción y fecha|
+| GET    | `/api/auditoria/filtros`  | rol `administrador`   | Acciones, entidades y usuarios para los filtros |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -836,6 +838,66 @@ Para probar el cron en local: `npx wrangler dev --test-scheduled` y después abr
 |--------|--------|
 | 400 `ID_INVALIDO` | el id del interno no es un entero mayor a cero |
 | 404 `INTERNO_NO_ENCONTRADO` | no existe un interno con ese id |
+
+### Auditoría (regla 13)
+
+Toda alta, modificación y baja queda registrada en la tabla `auditoria` con el usuario que
+la hizo y la fecha y hora (UTC, como el resto de las fechas con hora). Cada controlador lo
+registra después de guardar, con `auditoria.registrar(usuarioId, accion, entidad, id, detalle)`
+de `services/auditoria.service.js`; si se suma una operación nueva, va lo mismo.
+
+| Acción | Dónde |
+|--------|-------|
+| `alta` | internos, pagos, egresos, parámetros de cobranza, módulos |
+| `modificacion` | internos, egresos, módulos, módulos de un rol |
+| `baja` | internos, módulos |
+| `reingreso` | internos |
+| `anulacion` | egresos |
+| `generacion` | cuotas del período |
+| `mora` | aplicación manual del interés, y el cron diario (sin usuario, solo si alguna cuota entró en mora) |
+| `login` | inicio de sesión correcto |
+
+En las modificaciones el `detalle` trae `cambios: { campo: { antes, despues } }` solo con lo
+que cambió. Los datos de salud del interno se marcan como modificados pero no se copian al
+registro. Si falla la escritura de la auditoría, la operación no se corta: lo que el usuario
+hizo ya quedó guardado, y el error queda en el log.
+
+La consulta es solo para el rol `administrador`:
+
+```
+GET /api/auditoria?usuario_id=1&accion=baja&entidad=internos&desde=2026-10-01&hasta=2026-10-31&pagina=1&por_pagina=50
+```
+
+Todos los filtros son opcionales y se combinan. `desde` y `hasta` son días enteros e
+inclusivos. Ordena del registro más nuevo al más viejo y el `detalle` viene como objeto.
+
+```json
+{
+  "ok": true,
+  "registros": [
+    {
+      "id": 42, "fecha": "2026-10-28 14:05:31", "accion": "modificacion",
+      "entidad": "egresos", "entidad_id": 3,
+      "detalle": { "cambios": { "monto": { "antes": 45000.5, "despues": 47000 } } },
+      "usuario_id": 1, "usuario": "admin", "usuario_nombre": "Administrador de prueba"
+    }
+  ],
+  "paginacion": { "pagina": 1, "por_pagina": 50, "total": 1, "total_paginas": 1 }
+}
+```
+
+`GET /api/auditoria/filtros` devuelve las `acciones` y `entidades` que ya aparecen en el
+registro y todos los `usuarios`, para armar los desplegables.
+
+Para una base ya creada hay que correr una vez `db/migracion_auditoria.sql` (crea la tabla si
+no estaba y el índice por fecha).
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | `usuario_id` no es un entero mayor a cero |
+| 400 `FECHA_INVALIDA` | `desde`/`hasta` no son AAAA-MM-DD, o `desde` es posterior a `hasta` |
+| 400 `PAGINACION_INVALIDA` | `pagina` o `por_pagina` no son enteros mayores a cero |
+| 403 `SIN_PERMISO` | el usuario no es administrador |
 
 ## Documentación para el front (Swagger)
 

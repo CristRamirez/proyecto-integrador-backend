@@ -2,7 +2,9 @@ const ApiError = require('../utils/ApiError');
 const pagos = require('../services/pagos.service');
 const cuotas = require('../services/cuotas.service');
 const catalogos = require('../services/catalogos.service');
+const auditoria = require('../services/auditoria.service');
 
+const { ACCIONES } = auditoria;
 const ESTADO_PAGADA = 'pagada';
 const ESTADO_PARCIAL = 'parcial';
 const ESTADO_ANULADA = 'anulada';
@@ -211,7 +213,7 @@ async function registrar(req, res) {
     await cuotas.quitarMora(id);
   }
 
-  await pagos.crear({
+  const pagoId = await pagos.crear({
     cuotaId: id,
     medioPagoId: medio.id,
     monto,
@@ -221,6 +223,15 @@ async function registrar(req, res) {
     usuarioId: req.usuario.id,
   });
   await pagos.actualizarSaldo(id, Math.max(saldoNuevo, 0), estado.id);
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.ALTA, 'pagos', pagoId, {
+    cuota_id: id,
+    interno_id: cuota.interno_id,
+    monto,
+    medio_pago: medio.nombre,
+    saldo_restante: Math.max(saldoNuevo, 0),
+    ...(sinMora ? { mora_quitada: cuota.interes_aplicado } : {}),
+  });
 
   res.status(201).json({
     ok: true,

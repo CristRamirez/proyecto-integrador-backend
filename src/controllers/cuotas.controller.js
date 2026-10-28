@@ -1,6 +1,9 @@
 const ApiError = require('../utils/ApiError');
 const cuotas = require('../services/cuotas.service');
 const parametros = require('../services/parametros.service');
+const auditoria = require('../services/auditoria.service');
+
+const { ACCIONES } = auditoria;
 
 const ESTADO_INICIAL = 'pendiente';
 const ANIO_MINIMO = 2020;
@@ -71,6 +74,13 @@ async function generar(req, res) {
       fechaVencimiento,
     });
   }
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.GENERACION, 'cuotas', null, {
+    anio,
+    mes,
+    creadas: pendientes.length,
+    valor_cuota: configuracion.valor_cuota,
+  });
 
   res.json({
     ok: true,
@@ -167,11 +177,18 @@ async function listar(req, res) {
 // interés.
 async function aplicarMora(req, res) {
   const enMora = await cuotas.aplicarMora();
+  const interesTotal = enMora.reduce((total, cuota) => redondear(total + cuota.interes_aplicado), 0);
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.MORA, 'cuotas', null, {
+    aplicadas: enMora.length,
+    interes_total: interesTotal,
+    cuotas: enMora.map((cuota) => cuota.id),
+  });
 
   res.json({
     ok: true,
     aplicadas: enMora.length,
-    interes_total: enMora.reduce((total, cuota) => redondear(total + cuota.interes_aplicado), 0),
+    interes_total: interesTotal,
     cuotas: enMora,
   });
 }
