@@ -3,6 +3,7 @@ const ApiError = require('../utils/ApiError');
 const { firmarToken } = require('../utils/token');
 const usuarios = require('../services/usuarios.service');
 const roles = require('../services/roles.service');
+const auditoria = require('../services/auditoria.service');
 
 const MAXIMO_INTENTOS = 5;
 const MINUTOS_BLOQUEO = 5;
@@ -80,6 +81,8 @@ async function login(req, res) {
   if (usuario.intentos_fallidos > 0 || usuario.bloqueado_hasta) {
     await usuarios.reiniciarIntentos(usuario.id);
   }
+
+  await auditoria.registrar(usuario.id, auditoria.ACCIONES.LOGIN, 'usuarios', usuario.id);
 
   res.json({
     ok: true,

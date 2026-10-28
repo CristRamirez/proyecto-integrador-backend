@@ -290,8 +290,17 @@ CREATE TABLE IF NOT EXISTS egresos (
   observaciones TEXT,
   usuario_id    INTEGER,                       -- quién lo registró
   creado_en     TEXT    NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (medio_pago_id) REFERENCES medios_pago(id),
-  FOREIGN KEY (usuario_id)    REFERENCES usuarios(id)
+  -- Un egreso no se borra: se anula. Sigue en el listado pero no suma.
+  estado           TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'anulado')),
+  motivo_anulacion TEXT,
+  anulado_por      INTEGER,
+  anulado_en       TEXT,
+  modificado_por   INTEGER,
+  modificado_en    TEXT,
+  FOREIGN KEY (medio_pago_id)  REFERENCES medios_pago(id),
+  FOREIGN KEY (usuario_id)     REFERENCES usuarios(id),
+  FOREIGN KEY (anulado_por)    REFERENCES usuarios(id),
+  FOREIGN KEY (modificado_por) REFERENCES usuarios(id)
 );
 
 -- ------------------------------------------------------------
@@ -336,3 +345,4 @@ CREATE TABLE IF NOT EXISTS auditoria (
 
 CREATE INDEX IF NOT EXISTS idx_auditoria_usuario ON auditoria(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_auditoria_entidad ON auditoria(entidad, entidad_id);
+CREATE INDEX IF NOT EXISTS idx_auditoria_fecha   ON auditoria(fecha);

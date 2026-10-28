@@ -11,5 +11,7 @@ router.use(requiereAutenticacion, requiereModulo('cobranzas'));
 router.get('/', asyncHandler(egresos.listar));
 router.get('/categorias', asyncHandler(egresos.categorias));
 router.post('/', asyncHandler(egresos.registrar));
+router.put('/:id', asyncHandler(egresos.modificar));
+router.post('/:id/anular', asyncHandler(egresos.anular));
 
 module.exports = router;

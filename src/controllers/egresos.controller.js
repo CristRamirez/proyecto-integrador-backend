@@ -1,6 +1,9 @@
 const ApiError = require('../utils/ApiError');
 const egresos = require('../services/egresos.service');
 const catalogos = require('../services/catalogos.service');
+const auditoria = require('../services/auditoria.service');
+
+const { ACCIONES } = auditoria;
 
 const ANIO_MINIMO = 2020;
 const ANIO_MAXIMO = 2100;
@@ -10,6 +13,7 @@ const MAXIMO_CONCEPTO = 200;
 const MAXIMO_CATEGORIA = 60;
 const MAXIMO_COMPROBANTE = 100;
 const MAXIMO_OBSERVACIONES = 500;
+const MAXIMO_MOTIVO = 500;
 
 function texto(valor) {
   return typeof valor === 'string' ? valor.trim() : '';
@@ -87,9 +91,9 @@ function leerMonto(valor) {
   return Math.round(monto * 100) / 100;
 }
 
-function leerFecha(valor) {
+function leerFecha(valor, porDefecto = hoy()) {
   if (vacio(valor)) {
-    return hoy();
+    return porDefecto;
   }
 
   const fecha = texto(valor);
@@ -130,14 +134,24 @@ function leerPaginado(valor, porDefecto, etiqueta) {
   return numero;
 }
 
-async function registrar(req, res) {
-  const cuerpo = req.body || {};
+function leerIdEgreso(valor) {
+  const id = Number(valor);
 
-  const datos = {
+  if (!Number.isInteger(id) || id <= 0) {
+    throw ApiError.solicitudInvalida('El id del egreso no es válido', 'ID_INVALIDO');
+  }
+
+  return id;
+}
+
+// Los campos del alta y de la edición son los mismos y se validan igual.
+// Lo único que cambia es la fecha que se usa si no viene.
+async function leerDatos(cuerpo, fechaPorDefecto) {
+  return {
     concepto: leerTexto(cuerpo.concepto, 'El concepto', MAXIMO_CONCEPTO, 'CONCEPTO_INVALIDO'),
     categoria: leerCategoria(cuerpo.categoria),
     monto: leerMonto(cuerpo.monto),
-    fecha: leerFecha(cuerpo.fecha),
+    fecha: leerFecha(cuerpo.fecha, fechaPorDefecto),
     comprobante: leerTexto(cuerpo.comprobante, 'El comprobante', MAXIMO_COMPROBANTE, 'COMPROBANTE_INVALIDO', {
       obligatorio: false,
     }),
@@ -145,12 +159,111 @@ async function registrar(req, res) {
       obligatorio: false,
     }),
     medioPagoId: await leerMedioPago(cuerpo.medio_pago_id),
-    usuarioId: req.usuario.id,
   };
+}
 
-  const id = await egresos.crear(datos);
+function controlarNoAnulado(egreso) {
+  if (egreso.estado === egresos.ESTADO_ANULADO) {
+    throw new ApiError(409, 'El egreso está anulado', 'EGRESO_ANULADO');
+  }
+}
+
+async function registrar(req, res) {
+  const datos = await leerDatos(req.body || {}, hoy());
+  const id = await egresos.crear({ ...datos, usuarioId: req.usuario.id });
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.ALTA, 'egresos', id, {
+    concepto: datos.concepto,
+    categoria: datos.categoria,
+    monto: datos.monto,
+    fecha: datos.fecha,
+  });
 
   res.status(201).json({ ok: true, egreso: await egresos.obtener(id) });
+}
+
+// PUT /api/egresos/:id
+// Se manda el egreso completo, igual que en el alta. Si no viene la fecha se
+// deja la que tenía (en el alta sería la del día).
+async function modificar(req, res) {
+  const id = leerIdEgreso(req.params.id);
+  const actual = await egresos.obtener(id);
+
+  if (!actual) {
+    throw ApiError.noEncontrado('El egreso no existe', 'EGRESO_NO_ENCONTRADO');
+  }
+
+  controlarNoAnulado(actual);
+
+  const datos = await leerDatos(req.body || {}, String(actual.fecha).slice(0, 10));
+
+  if (!(await egresos.actualizar(id, datos, req.usuario.id))) {
+    throw new ApiError(409, 'El egreso está anulado', 'EGRESO_ANULADO');
+  }
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.MODIFICACION, 'egresos', id, {
+    cambios: auditoria.cambios(
+      { ...actual, fecha: String(actual.fecha).slice(0, 10) },
+      {
+        concepto: datos.concepto,
+        categoria: datos.categoria,
+        monto: datos.monto,
+        fecha: datos.fecha,
+        comprobante: datos.comprobante,
+        observaciones: datos.observaciones,
+        medio_pago_id: datos.medioPagoId,
+      }
+    ),
+  });
+
+  res.json({ ok: true, egreso: await egresos.obtener(id) });
+}
+
+function leerMotivo(valor) {
+  const motivo = texto(valor);
+
+  if (!motivo) {
+    throw ApiError.solicitudInvalida('El motivo de la anulación es obligatorio', 'DATOS_INCOMPLETOS');
+  }
+
+  if (motivo.length > MAXIMO_MOTIVO) {
+    throw ApiError.solicitudInvalida(
+      `El motivo no puede superar los ${MAXIMO_MOTIVO} caracteres`,
+      'MOTIVO_INVALIDO'
+    );
+  }
+
+  return motivo;
+}
+
+// POST /api/egresos/:id/anular
+// No se borra: queda en el listado con estado 'anulado' y el motivo, y deja de
+// sumar en el resumen. Igual que las cuotas anuladas o la baja de un interno.
+async function anular(req, res) {
+  const id = leerIdEgreso(req.params.id);
+  const actual = await egresos.obtener(id);
+
+  if (!actual) {
+    throw ApiError.noEncontrado('El egreso no existe', 'EGRESO_NO_ENCONTRADO');
+  }
+
+  if (actual.estado === egresos.ESTADO_ANULADO) {
+    throw new ApiError(409, 'El egreso ya está anulado', 'EGRESO_YA_ANULADO');
+  }
+
+  const motivo = leerMotivo((req.body || {}).motivo);
+
+  if (!(await egresos.anular(id, motivo, req.usuario.id))) {
+    throw new ApiError(409, 'El egreso ya está anulado', 'EGRESO_YA_ANULADO');
+  }
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.ANULACION, 'egresos', id, {
+    motivo,
+    concepto: actual.concepto,
+    monto: actual.monto,
+  });
+
+  res.json({ ok: true, egreso: await egresos.obtener(id) });
 }
 
 async function listar(req, res) {
@@ -186,4 +299,4 @@ async function categorias(req, res) {
   res.json({ ok: true, categorias: await egresos.categoriasUsadas() });
 }
 
-module.exports = { registrar, listar, categorias };
+module.exports = { registrar, modificar, anular, listar, categorias };

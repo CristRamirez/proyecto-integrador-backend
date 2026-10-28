@@ -1,6 +1,7 @@
 const ApiError = require('../utils/ApiError');
 const roles = require('../services/roles.service');
 const modulos = require('../services/modulos.service');
+const auditoria = require('../services/auditoria.service');
 
 function leerId(valor) {
   const id = Number(valor);
@@ -60,7 +61,15 @@ async function reemplazarModulos(req, res) {
     }
   }
 
-  res.json({ ok: true, rol: rol.nombre, modulos: await roles.reemplazarModulos(id, ids) });
+  const antes = (await roles.modulosDeRol(id)).map((modulo) => modulo.id);
+  const asignados = await roles.reemplazarModulos(id, ids);
+
+  await auditoria.registrar(req.usuario.id, auditoria.ACCIONES.MODIFICACION, 'roles', id, {
+    rol: rol.nombre,
+    cambios: { modulos: { antes, despues: ids } },
+  });
+
+  res.json({ ok: true, rol: rol.nombre, modulos: asignados });
 }
 
 module.exports = { listar, listarModulos, reemplazarModulos };

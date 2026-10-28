@@ -2,7 +2,9 @@ const ApiError = require('../utils/ApiError');
 const internos = require('../services/internos.service');
 const legajos = require('../services/legajos.service');
 const catalogos = require('../services/catalogos.service');
+const auditoria = require('../services/auditoria.service');
 
+const { ACCIONES } = auditoria;
 const ESTADO_INICIAL = 'activo';
 const ESTADO_BAJA = 'egresado';
 const MAXIMO_MOTIVO = 500;
@@ -195,9 +197,16 @@ async function alta(req, res) {
 
   const internoId = await internos.crear(datos);
 
-  await legajos.crear(internoId, await legajos.generarNumero(), datos.fechaIngreso);
+  const legajo = await legajos.crear(internoId, await legajos.generarNumero(), datos.fechaIngreso);
   await internos.agregarContactos(internoId, contactos);
   await internos.registrarEstado(internoId, estado.id, req.usuario.id);
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.ALTA, 'internos', internoId, {
+    dni: datos.dni,
+    apellido: datos.apellido,
+    nombre: datos.nombre,
+    legajo: legajo ? legajo.numero : null,
+  });
 
   res.status(201).json({ ok: true, interno: await internos.obtenerFichaBasica(internoId) });
 }
@@ -370,6 +379,11 @@ async function baja(req, res) {
   await internos.registrarEstado(id, estado.id, req.usuario.id, motivo, `${fechaEgreso} ${horaActual()}`);
   await legajos.cerrarAbierto(id, fechaEgreso, motivo);
 
+  await auditoria.registrar(req.usuario.id, ACCIONES.BAJA, 'internos', id, {
+    motivo,
+    fecha_egreso: fechaEgreso,
+  });
+
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });
 }
 
@@ -427,8 +441,14 @@ async function reingreso(req, res) {
   }
 
   await internos.actualizar(id, { estado_id: estado.id, fecha_ingreso: fechaIngreso }, req.usuario.id);
-  await legajos.crear(id, await legajos.generarNumero(), fechaIngreso);
+  const legajo = await legajos.crear(id, await legajos.generarNumero(), fechaIngreso);
   await internos.registrarEstado(id, estado.id, req.usuario.id, motivo, `${fechaIngreso} ${horaActual()}`);
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.REINGRESO, 'internos', id, {
+    motivo,
+    fecha_ingreso: fechaIngreso,
+    legajo: legajo ? legajo.numero : null,
+  });
 
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });
 }
@@ -515,6 +535,19 @@ async function modificar(req, res) {
   if (contactos) {
     await internos.reemplazarContactos(id, contactos);
   }
+
+  // Los datos de salud se registran como modificados pero sin el contenido:
+  // el log lo consulta gente que no tiene por qué leerlos.
+  const distintos = auditoria.cambios(actual, cambios);
+
+  if (distintos.datos_salud) {
+    distintos.datos_salud = { modificado: true };
+  }
+
+  await auditoria.registrar(req.usuario.id, ACCIONES.MODIFICACION, 'internos', id, {
+    cambios: distintos,
+    ...(contactos ? { contactos_reemplazados: contactos.length } : {}),
+  });
 
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });
 }

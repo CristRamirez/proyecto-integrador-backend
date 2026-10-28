@@ -32,6 +32,8 @@ tags:
     description: Valores con los que se generan las cuotas (solo rol administrador)
   - name: Cobranzas
     description: Cuotas, pagos y egresos
+  - name: Auditoría
+    description: Registro de altas, modificaciones y bajas (solo rol administrador)
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -775,6 +777,9 @@ paths:
 
         El `resumen` es de todo el período y **no** aplica el filtro de categoría. Ordena del
         egreso más reciente al más viejo.
+
+        Los anulados se listan con `estado: anulado` y su motivo, pero **no suman** en el
+        `resumen` (solo se cuentan en `resumen.anulados`).
       parameters:
         - { name: anio, in: query, required: true, schema: { type: integer, minimum: 2020, maximum: 2100 }, example: 2026 }
         - { name: mes, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 12 }, example: 10 }
@@ -851,6 +856,97 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /egresos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdEgreso'
+    put:
+      tags: [Cobranzas]
+      summary: Edición de un egreso (BS-12)
+      description: |
+        Se manda el egreso completo, con los mismos campos y validaciones que el alta. Si no
+        viene la fecha se deja la que tenía. Un egreso anulado no se puede editar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EgresoNuevo' }
+            example:
+              concepto: Factura de luz
+              categoria: servicios
+              monto: 47000
+              medio_pago_id: 2
+              fecha: '2026-10-05'
+              comprobante: B-0001-00099
+      responses:
+        '200':
+          description: Egreso actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  egreso: { $ref: '#/components/schemas/Egreso' }
+        '400':
+          description: |
+            `ID_INVALIDO` o los mismos del alta: `DATOS_INCOMPLETOS`, `MONTO_INVALIDO`,
+            `MEDIO_PAGO_INEXISTENTE`, `FECHA_INVALIDA`, `CONCEPTO_INVALIDO`, `CATEGORIA_INVALIDA`,
+            `COMPROBANTE_INVALIDO` u `OBSERVACIONES_INVALIDAS`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/EgresoNoEncontrado' }
+        '409':
+          description: '`EGRESO_ANULADO`: el egreso está anulado y no se puede editar'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /egresos/{id}/anular:
+    parameters:
+      - $ref: '#/components/parameters/IdEgreso'
+    post:
+      tags: [Cobranzas]
+      summary: Anulación de un egreso (BS-12)
+      description: |
+        El egreso **no se borra**: queda con `estado: anulado`, el motivo, quién lo anuló y
+        cuándo. Sigue apareciendo en `GET /egresos` pero deja de sumar en el resumen, igual que
+        las cuotas anuladas o la baja de un interno. El `motivo` es obligatorio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [motivo]
+              properties:
+                motivo: { type: string, maxLength: 500, example: Cargado dos veces }
+      responses:
+        '200':
+          description: Egreso anulado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  egreso: { $ref: '#/components/schemas/Egreso' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` (falta el motivo) o `MOTIVO_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/EgresoNoEncontrado' }
+        '409':
+          description: '`EGRESO_YA_ANULADO`: el egreso ya estaba anulado'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /egresos/categorias:
     get:
       tags: [Cobranzas]
@@ -869,6 +965,84 @@ paths:
                     type: array
                     items: { type: string }
                     example: [insumos, servicios, sueldos]
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  # ------------------------------------------------------------------
+  # AUDITORÍA
+  # ------------------------------------------------------------------
+  /auditoria:
+    get:
+      tags: [Auditoría]
+      summary: Registro de auditoría (regla 13)
+      description: |
+        Toda alta, modificación y baja del sistema, con el usuario que la hizo y la fecha y hora
+        (UTC), del registro más nuevo al más viejo. Todos los filtros son opcionales y se
+        combinan. Las fechas `desde` y `hasta` son días enteros e inclusivos.
+
+        Acciones que se registran: `alta`, `modificacion`, `baja`, `reingreso`, `anulacion`,
+        `generacion` (cuotas del período), `mora` (manual o del cron diario, que va sin
+        usuario) y `login`. En las modificaciones, `detalle.cambios` trae
+        `{ campo: { antes, despues } }` solo con lo que cambió.
+      parameters:
+        - { name: usuario_id, in: query, required: false, schema: { type: integer, minimum: 1 }, example: 1 }
+        - { name: accion, in: query, required: false, schema: { type: string }, example: baja }
+        - { name: entidad, in: query, required: false, description: 'Tabla afectada (internos, pagos, egresos...)', schema: { type: string }, example: internos }
+        - { name: desde, in: query, required: false, schema: { type: string, format: date }, example: '2026-10-01' }
+        - { name: hasta, in: query, required: false, schema: { type: string, format: date }, example: '2026-10-31' }
+        - { name: pagina, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: por_pagina, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: Los registros que cumplen los filtros, con la paginación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  registros:
+                    type: array
+                    items: { $ref: '#/components/schemas/RegistroAuditoria' }
+                  paginacion: { $ref: '#/components/schemas/Paginacion' }
+        '400':
+          description: '`ID_INVALIDO` (usuario_id), `FECHA_INVALIDA` (mal formada o desde > hasta) o `PAGINACION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /auditoria/filtros:
+    get:
+      tags: [Auditoría]
+      summary: Opciones para los filtros de la pantalla de auditoría
+      description: Las acciones y entidades que ya aparecen en el registro, y todos los usuarios.
+      responses:
+        '200':
+          description: Opciones de los desplegables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  acciones:
+                    type: array
+                    items: { type: string }
+                    example: [alta, baja, login, modificacion]
+                  entidades:
+                    type: array
+                    items: { type: string }
+                    example: [egresos, internos, pagos]
+                  usuarios:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, example: 1 }
+                        usuario: { type: string, example: admin }
+                        nombre: { type: string, nullable: true, example: Administrador de prueba }
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
@@ -1177,6 +1351,11 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1, example: 12 }
+    IdEgreso:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, example: 3 }
 
   responses:
     SolicitudInvalida:
@@ -1201,6 +1380,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     InternoNoEncontrado:
       description: '`INTERNO_NO_ENCONTRADO`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    EgresoNoEncontrado:
+      description: '`EGRESO_NO_ENCONTRADO`'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1518,15 +1702,21 @@ components:
         fecha: { type: string, example: '2026-10-05' }
         comprobante: { type: string, nullable: true, example: B-0001-00099 }
         observaciones: { type: string, nullable: true }
+        medio_pago_id: { type: integer, example: 2 }
         medio_pago: { type: string, example: transferencia }
         registrado_por: { type: string, nullable: true, example: Administrador de prueba }
+        estado: { type: string, enum: [activo, anulado], example: activo }
+        motivo_anulacion: { type: string, nullable: true, example: null }
+        anulado_por: { type: string, nullable: true, description: Nombre de quien lo anuló, example: null }
+        anulado_en: { type: string, nullable: true, example: null }
 
     ResumenEgresos:
       type: object
-      description: Totales de todo el período, sin aplicar el filtro de categoría.
+      description: Totales de todo el período, sin aplicar el filtro de categoría. No suma los anulados.
       properties:
-        cantidad: { type: integer, example: 4 }
+        cantidad: { type: integer, description: Egresos activos, example: 4 }
         total: { type: number, format: float, example: 385000.5 }
+        anulados: { type: integer, description: Cuántos se anularon en el período (no suman), example: 1 }
         por_categoria:
           type: array
           description: De mayor a menor gasto.
@@ -1536,6 +1726,22 @@ components:
               categoria: { type: string, example: sueldos }
               cantidad: { type: integer, example: 1 }
               total: { type: number, format: float, example: 300000 }
+
+    RegistroAuditoria:
+      type: object
+      properties:
+        id: { type: integer, example: 42 }
+        fecha: { type: string, description: 'AAAA-MM-DD HH:MM:SS, en UTC', example: '2026-10-28 14:05:31' }
+        accion: { type: string, example: modificacion }
+        entidad: { type: string, example: egresos }
+        entidad_id: { type: integer, nullable: true, description: Null en las operaciones sobre muchos registros (generar cuotas, mora), example: 3 }
+        detalle:
+          type: object
+          nullable: true
+          example: { cambios: { monto: { antes: 45000.5, despues: 47000 } } }
+        usuario_id: { type: integer, nullable: true, description: Null cuando lo hizo el sistema (cron de mora), example: 1 }
+        usuario: { type: string, nullable: true, example: admin }
+        usuario_nombre: { type: string, nullable: true, example: Administrador de prueba }
 
     Paginacion:
       type: object

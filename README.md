@@ -127,6 +127,10 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/egresos`            | módulo `cobranzas`    | Egresos del período, con totales por categoría (BS-12)|
 | GET    | `/api/egresos/categorias` | módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
 | POST   | `/api/egresos`            | módulo `cobranzas`    | Registra un egreso institucional (BS-12)        |
+| PUT    | `/api/egresos/:id`        | módulo `cobranzas`    | Edita un egreso que no esté anulado (BS-12)     |
+| POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
+| GET    | `/api/auditoria`          | rol `administrador`   | Registro de auditoría, filtrable por usuario, acción y fecha|
+| GET    | `/api/auditoria/filtros`  | rol `administrador`   | Acciones, entidades y usuarios para los filtros |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -730,7 +734,9 @@ del egreso más reciente al más viejo. El filtro de categoría no distingue may
 
 El `resumen` es de **todo el período y sin aplicar el filtro**, igual que en el listado de
 cuotas: trae el total, la cantidad de movimientos y el desglose `por_categoria`, ordenado de
-mayor a menor gasto.
+mayor a menor gasto. Cada egreso trae su `estado` (`activo` o `anulado`): los anulados se
+listan, con `motivo_anulacion`, `anulado_por` y `anulado_en`, pero **no suman** en el resumen;
+solo se cuentan en `resumen.anulados`.
 
 ```json
 {
@@ -739,6 +745,7 @@ mayor a menor gasto.
   "resumen": {
     "cantidad": 4,
     "total": 385000.5,
+    "anulados": 1,
     "por_categoria": [
       { "categoria": "sueldos", "cantidad": 1, "total": 300000 },
       { "categoria": "servicios", "cantidad": 2, "total": 67000.5 }
@@ -755,14 +762,35 @@ resumen de `GET /api/cuotas` del mismo período.
 `GET /api/egresos/categorias` devuelve las categorías que ya se usaron alguna vez, ordenadas
 alfabéticamente, para ofrecerlas en el formulario sin obligar a escribirlas de nuevo.
 
+**Edición.** `PUT /api/egresos/:id` recibe los mismos campos que el alta, con las mismas
+validaciones, y responde con el egreso actualizado. Si no viene la fecha se deja la que tenía.
+Un egreso anulado no se puede editar.
+
+**Anulación.** Un egreso cargado mal no se borra: se anula, igual que una cuota o la baja de
+un interno. Queda con el motivo, quién lo anuló y cuándo, y responde con el egreso.
+
+```
+POST /api/egresos/3/anular
+Authorization: Bearer <token>
+
+{ "motivo": "Cargado dos veces" }
+```
+
+Para una base ya creada hay que correr una vez `db/migracion_egresos_anulacion.sql`, que le
+agrega a `egresos` el `estado` y las columnas de la anulación y de la edición.
+
 | Código | Cuándo |
 |--------|--------|
-| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto o el medio de pago |
+| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto o el medio de pago (o el motivo, al anular) |
 | 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
 | 400 `MEDIO_PAGO_INEXISTENTE` | el medio de pago no está en el catálogo |
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD o es futura |
 | 400 `CONCEPTO_INVALIDO`, `CATEGORIA_INVALIDA`, `COMPROBANTE_INVALIDO`, `OBSERVACIONES_INVALIDAS` | el texto supera el largo permitido |
 | 400 `PERIODO_INVALIDO`, `PAGINACION_INVALIDA` | en el listado, igual que en el de cuotas |
+| 400 `ID_INVALIDO`, `MOTIVO_INVALIDO` | el id no es un entero mayor a cero; el motivo supera los 500 caracteres |
+| 404 `EGRESO_NO_ENCONTRADO` | al editar o anular un egreso que no existe |
+| 409 `EGRESO_ANULADO` | se quiso editar un egreso anulado |
+| 409 `EGRESO_YA_ANULADO` | se quiso anular un egreso que ya estaba anulado |
 
 ### Interés por mora (BS-11)
 
@@ -810,6 +838,66 @@ Para probar el cron en local: `npx wrangler dev --test-scheduled` y después abr
 |--------|--------|
 | 400 `ID_INVALIDO` | el id del interno no es un entero mayor a cero |
 | 404 `INTERNO_NO_ENCONTRADO` | no existe un interno con ese id |
+
+### Auditoría (regla 13)
+
+Toda alta, modificación y baja queda registrada en la tabla `auditoria` con el usuario que
+la hizo y la fecha y hora (UTC, como el resto de las fechas con hora). Cada controlador lo
+registra después de guardar, con `auditoria.registrar(usuarioId, accion, entidad, id, detalle)`
+de `services/auditoria.service.js`; si se suma una operación nueva, va lo mismo.
+
+| Acción | Dónde |
+|--------|-------|
+| `alta` | internos, pagos, egresos, parámetros de cobranza, módulos |
+| `modificacion` | internos, egresos, módulos, módulos de un rol |
+| `baja` | internos, módulos |
+| `reingreso` | internos |
+| `anulacion` | egresos |
+| `generacion` | cuotas del período |
+| `mora` | aplicación manual del interés, y el cron diario (sin usuario, solo si alguna cuota entró en mora) |
+| `login` | inicio de sesión correcto |
+
+En las modificaciones el `detalle` trae `cambios: { campo: { antes, despues } }` solo con lo
+que cambió. Los datos de salud del interno se marcan como modificados pero no se copian al
+registro. Si falla la escritura de la auditoría, la operación no se corta: lo que el usuario
+hizo ya quedó guardado, y el error queda en el log.
+
+La consulta es solo para el rol `administrador`:
+
+```
+GET /api/auditoria?usuario_id=1&accion=baja&entidad=internos&desde=2026-10-01&hasta=2026-10-31&pagina=1&por_pagina=50
+```
+
+Todos los filtros son opcionales y se combinan. `desde` y `hasta` son días enteros e
+inclusivos. Ordena del registro más nuevo al más viejo y el `detalle` viene como objeto.
+
+```json
+{
+  "ok": true,
+  "registros": [
+    {
+      "id": 42, "fecha": "2026-10-28 14:05:31", "accion": "modificacion",
+      "entidad": "egresos", "entidad_id": 3,
+      "detalle": { "cambios": { "monto": { "antes": 45000.5, "despues": 47000 } } },
+      "usuario_id": 1, "usuario": "admin", "usuario_nombre": "Administrador de prueba"
+    }
+  ],
+  "paginacion": { "pagina": 1, "por_pagina": 50, "total": 1, "total_paginas": 1 }
+}
+```
+
+`GET /api/auditoria/filtros` devuelve las `acciones` y `entidades` que ya aparecen en el
+registro y todos los `usuarios`, para armar los desplegables.
+
+Para una base ya creada hay que correr una vez `db/migracion_auditoria.sql` (crea la tabla si
+no estaba y el índice por fecha).
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | `usuario_id` no es un entero mayor a cero |
+| 400 `FECHA_INVALIDA` | `desde`/`hasta` no son AAAA-MM-DD, o `desde` es posterior a `hasta` |
+| 400 `PAGINACION_INVALIDA` | `pagina` o `por_pagina` no son enteros mayores a cero |
+| 403 `SIN_PERMISO` | el usuario no es administrador |
 
 ## Documentación para el front (Swagger)
 
