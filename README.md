@@ -82,7 +82,7 @@ src/
 ├── controllers/         qué hace cada ruta (recibe el pedido y arma la respuesta)
 ├── services/            consultas a la base, reutilizables entre controladores
 ├── middlewares/         autenticación, control por rol y manejo de errores
-└── utils/               ApiError, firma de tokens y asyncHandler
+└── utils/               ApiError, firma de tokens, búsqueda de texto y asyncHandler
 ```
 
 Para agregar un módulo nuevo (internos, cobranzas, etc.) se crean su `*.routes.js`,
@@ -106,6 +106,13 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/roles`              | rol `administrador`   | Roles con su cantidad de módulos                |
 | GET    | `/api/roles/:id/modulos`  | rol `administrador`   | Módulos a los que accede ese rol                |
 | PUT    | `/api/roles/:id/modulos`  | rol `administrador`   | Reemplaza los módulos del rol: `{"modulos":[1,3]}`|
+| GET    | `/api/usuarios`           | rol `administrador`   | Usuarios con búsqueda, filtros y paginación     |
+| GET    | `/api/usuarios/:id`       | rol `administrador`   | Un usuario                                      |
+| POST   | `/api/usuarios`           | rol `administrador`   | Alta de usuario                                 |
+| PUT    | `/api/usuarios/:id`       | rol `administrador`   | Modifica los datos y el rol del usuario         |
+| PUT    | `/api/usuarios/:id/password` | rol `administrador` | Reinicia la contraseña                          |
+| PUT    | `/api/usuarios/:id/estado` | rol `administrador`  | Baja y alta lógica del usuario                  |
+| POST   | `/api/usuarios/:id/desbloquear` | rol `administrador` | Saca el bloqueo por intentos fallidos      |
 | GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
 | GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
 | GET    | `/api/internos`           | módulo `internos`     | Padrón: búsqueda, filtros y paginación (BS-3)   |
@@ -164,11 +171,168 @@ Authorization: Bearer eyJhbGciOi...
 queda bloqueado 5 minutos: mientras dura, el login responde 423 `USUARIO_BLOQUEADO` aunque
 la contraseña sea la correcta. El contador se guarda en `usuarios.intentos_fallidos` y la
 fecha de desbloqueo en `usuarios.bloqueado_hasta`. Un login correcto lo vuelve a cero, y
-cuando el bloqueo se vence el conteo arranca de nuevo.
+cuando el bloqueo se vence el conteo arranca de nuevo. Un administrador puede sacarlo antes
+con `POST /api/usuarios/:id/desbloquear`.
+
+El nombre de usuario no distingue mayúsculas: `admin`, `Admin` y `ADMIN` son el mismo.
 
 Roles en la base: `administrador`, `empleado`, `operador`, `contador` y `solo lectura`.
 A qué módulos accede cada uno se define desde el ABM (`PUT /api/roles/:id/modulos`): los
 roles nuevos arrancan sin módulos, así que su menú viene vacío hasta que se los asignen.
+
+### ABM de usuarios
+
+Alta, modificación y baja de la gente que puede iniciar sesión. Todas estas rutas piden rol
+`administrador`, igual que el resto de la configuración.
+
+| Método | Ruta | Para qué sirve |
+|--------|------|----------------|
+| GET | `/api/usuarios` | Listado con búsqueda, filtros y paginación |
+| GET | `/api/usuarios/:id` | Un usuario |
+| POST | `/api/usuarios` | Alta |
+| PUT | `/api/usuarios/:id` | Datos y rol |
+| PUT | `/api/usuarios/:id/password` | Reinicio de la contraseña |
+| PUT | `/api/usuarios/:id/estado` | Baja y alta lógica |
+| POST | `/api/usuarios/:id/desbloquear` | Saca el bloqueo por intentos fallidos (BS-1) |
+
+**La contraseña no sale nunca de la base.** Se guarda hasheada con bcrypt y ninguna de estas
+respuestas trae `password_hash`.
+
+#### Listado
+
+```
+GET /api/usuarios?q=carrasco&rol_id=2&activo=1&pagina=1&por_pagina=20
+Authorization: Bearer <token>
+```
+
+| Parámetro | Qué hace |
+|-----------|----------|
+| `q` | Busca en el nombre de usuario, el nombre y apellido y el email, sin distinguir mayúsculas ni acentos |
+| `rol_id` | Filtra por rol. Sin el parámetro vienen todos |
+| `activo` | `1` los habilitados, `0` los deshabilitados. Sin el parámetro vienen todos |
+| `pagina` | Página pedida, arranca en 1. Por defecto 1 |
+| `por_pagina` | Usuarios por página. Por defecto 20, máximo 100 |
+
+```json
+{
+  "ok": true,
+  "usuarios": [
+    {
+      "id": 2,
+      "nombre_usuario": "mcarrasco",
+      "nombre_completo": "Marcos Carrasco",
+      "email": "marcos@proyecto.local",
+      "rol_id": 2,
+      "rol": "empleado",
+      "activo": 1,
+      "bloqueado_hasta": null,
+      "bloqueado": false,
+      "creado_en": "2026-10-28 12:40:11"
+    }
+  ],
+  "paginacion": { "pagina": 1, "por_pagina": 20, "total": 1, "total_paginas": 1 }
+}
+```
+
+`bloqueado` es el que tiene que mirar la pantalla: sale de comparar `bloqueado_hasta` con la
+hora actual, porque un bloqueo ya vencido queda guardado hasta el próximo login.
+
+#### Alta
+
+```
+POST /api/usuarios
+Authorization: Bearer <token>
+
+{
+  "nombre_usuario": "mcarrasco",
+  "nombre_completo": "Marcos Carrasco",
+  "email": "marcos@proyecto.local",
+  "password": "marcos1234",
+  "rol_id": 2
+}
+```
+
+El `email` es opcional, el resto es obligatorio. El nombre de usuario se guarda en minúsculas
+y solo acepta letras sin acento, números, punto, guion y guion bajo, de 3 a 40 caracteres: no
+pueden convivir `MCarrasco` y `mcarrasco` porque el login tampoco distingue mayúsculas.
+Responde 201 con el usuario creado.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el nombre de usuario, el nombre y apellido, la contraseña o el rol |
+| 400 `NOMBRE_USUARIO_INVALIDO` | el nombre de usuario es corto, largo o tiene caracteres que no se aceptan |
+| 400 `NOMBRE_INVALIDO` | el nombre y apellido supera los 120 caracteres |
+| 400 `EMAIL_INVALIDO` | el email no tiene formato de email o supera los 120 caracteres |
+| 400 `PASSWORD_INVALIDA` | la contraseña no tiene entre 8 y 72 caracteres |
+| 400 `ROL_INEXISTENTE` | el `rol_id` no es un rol del catálogo |
+| 409 `USUARIO_DUPLICADO` | ya hay un usuario con ese nombre de usuario |
+| 409 `EMAIL_DUPLICADO` | ya hay un usuario con ese email |
+
+#### Modificación
+
+```
+PUT /api/usuarios/2
+Authorization: Bearer <token>
+
+{
+  "nombre_usuario": "mcarrasco",
+  "nombre_completo": "Marcos A. Carrasco",
+  "email": "",
+  "rol_id": 3
+}
+```
+
+Reemplaza los datos editables, el rol incluido; con `email` vacío o `null` se borra el que
+tenía. La contraseña y el estado no se tocan acá, cada uno tiene su endpoint. Mismos errores
+que el alta salvo `PASSWORD_INVALIDA`, más 404 `USUARIO_NO_ENCONTRADO`.
+
+#### Contraseña
+
+```
+PUT /api/usuarios/2/password
+Authorization: Bearer <token>
+
+{ "password": "nuevaclave1" }
+```
+
+Es el reinicio que hace el administrador cuando alguien se la olvidó. Además de cambiarla
+deja los intentos fallidos en cero y saca el bloqueo.
+
+#### Baja y alta lógica
+
+```
+PUT /api/usuarios/2/estado
+Authorization: Bearer <token>
+
+{ "activo": false }
+```
+
+Los usuarios no se borran: quedan referenciados en todo lo que cargaron (internos, pagos,
+egresos), así que la baja es lógica. Uno deshabilitado no puede iniciar sesión (403
+`USUARIO_INACTIVO`) y se lo vuelve a habilitar con `{ "activo": true }`.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INVALIDOS` | `activo` no es `true` ni `false` |
+| 409 `USUARIO_ES_PROPIO` | el administrador se está deshabilitando a sí mismo |
+| 409 `ULTIMO_ADMINISTRADOR` | es el único administrador activo que queda |
+
+`ULTIMO_ADMINISTRADOR` también aparece al cambiarle el rol al último administrador activo: si
+se dejara pasar, nadie podría volver a entrar a la configuración.
+
+#### Desbloqueo
+
+```
+POST /api/usuarios/2/desbloquear
+Authorization: Bearer <token>
+```
+
+Para no esperar los 5 minutos del bloqueo por intentos fallidos (BS-1): deja el contador en
+cero y `bloqueado_hasta` en `null`.
+
+**El token no se entera de estos cambios.** Lleva adentro el rol y dura 2 horas, así que a
+quien le cambien el rol o lo deshabiliten con la sesión abierta sigue entrando con los
+permisos viejos hasta que el token se venza y tenga que loguearse de nuevo.
 
 ### Alta de interno (BS-2)
 

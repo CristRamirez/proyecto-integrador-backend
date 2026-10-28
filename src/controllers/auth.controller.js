@@ -8,16 +8,8 @@ const auditoria = require('../services/auditoria.service');
 const MAXIMO_INTENTOS = 5;
 const MINUTOS_BLOQUEO = 5;
 
-function ahora() {
-  return new Date().toISOString().slice(0, 19).replace('T', ' ');
-}
-
 function dentroDe(minutos) {
   return new Date(Date.now() + minutos * 60000).toISOString().slice(0, 19).replace('T', ' ');
-}
-
-function estaBloqueado(usuario) {
-  return Boolean(usuario.bloqueado_hasta) && usuario.bloqueado_hasta > ahora();
 }
 
 function errorDeBloqueo(hasta) {
@@ -56,7 +48,7 @@ async function login(req, res) {
 
   const usuario = await usuarios.buscarPorNombreUsuario(nombreUsuario);
 
-  if (usuario && estaBloqueado(usuario)) {
+  if (usuario && usuarios.estaBloqueado(usuario)) {
     throw errorDeBloqueo(usuario.bloqueado_hasta);
   }
 
