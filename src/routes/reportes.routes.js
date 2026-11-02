@@ -10,5 +10,6 @@ router.use(requiereAutenticacion, requiereModulo('reportes'));
 
 router.get('/', asyncHandler(reportes.listar));
 router.get('/balance', asyncHandler(reportes.balance));
+router.get('/medios-pago', asyncHandler(reportes.mediosPago));
 
 module.exports = router;

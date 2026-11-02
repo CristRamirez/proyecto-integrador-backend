@@ -1563,6 +1563,29 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /reportes/medios-pago:
+    get:
+      tags: [Reportes]
+      summary: Ingresos por medio de pago (RP-04)
+      description: |
+        Lo cobrado en el rango, abierto por medio de pago. La primera tarjeta es el total y
+        después va una por medio; los indicadores son la participación de cada uno.
+
+        Vienen siempre los cinco medios del catálogo, en orden alfabético, aunque alguno no
+        haya tenido movimiento, así la pantalla no cambia de orden al mover el rango.
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------

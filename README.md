@@ -140,6 +140,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/auditoria/filtros`  | rol `administrador`   | Acciones, entidades y usuarios para los filtros |
 | GET    | `/api/reportes`           | módulo `reportes`     | Catálogo de los reportes y cuáles ya están listos|
 | GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
+| GET    | `/api/reportes/medios-pago`| módulo `reportes`     | Lo cobrado por cada medio de pago (RP-04)       |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -1150,6 +1151,29 @@ tener la lista escrita a mano. Cuando un reporte se termina, se cambia esa bande
 
 Compara lo cobrado (por fecha de pago) contra los egresos del rango. Los egresos anulados no
 suman. Si no hubo ingresos, los porcentajes dan 0 en vez de romper.
+
+### Ingresos por medio de pago (RP-04)
+
+Lo cobrado en el rango, abierto por medio de pago. La primera tarjeta es el total y después
+va una por medio; los indicadores son la participación de cada uno sobre ese total.
+
+Aparecen **siempre los cinco medios del catálogo**, en orden alfabético, aunque alguno no
+haya tenido movimiento: así las tarjetas y las líneas del gráfico no cambian de lugar al
+mover el rango. La clave de cada uno sale del nombre sin acentos ni espacios (`obra_social`),
+y la etiqueta es el nombre para mostrar (`Obra social`).
+
+```json
+{
+  "tarjetas": [
+    { "clave": "total",         "etiqueta": "Total cobrado",  "valor": 110000, "formato": "moneda" },
+    { "clave": "efectivo",      "etiqueta": "Efectivo",       "valor": 50000,  "formato": "moneda" },
+    { "clave": "transferencia", "etiqueta": "Transferencia",  "valor": 50000,  "formato": "moneda" }
+  ],
+  "indicadores": [
+    { "clave": "participacion_efectivo", "etiqueta": "Participación de efectivo", "valor": 45.45, "formato": "porcentaje" }
+  ]
+}
+```
 
 ### Cómo se agrega un reporte
 

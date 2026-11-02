@@ -29,7 +29,7 @@ const CATALOGO = [
     titulo: 'Ingresos por medio de pago',
     descripcion: 'Lo cobrado por cada medio de pago en el rango elegido.',
     endpoint: '/api/reportes/medios-pago',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'egresos',

@@ -27,6 +27,21 @@ function porcentaje(parte, total) {
   return total ? redondear((Number(parte) * 100) / Number(total)) : 0;
 }
 
+function clave(texto) {
+  return String(texto)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function etiquetaDe(texto) {
+  const limpio = String(texto).trim();
+
+  return limpio ? limpio[0].toUpperCase() + limpio.slice(1) : limpio;
+}
+
 function tarjeta(clave, etiqueta, valor, formato = FORMATOS.MONEDA) {
   return { clave, etiqueta, valor: redondear(valor), formato };
 }
@@ -82,6 +97,8 @@ module.exports = {
   suma,
   redondear,
   porcentaje,
+  clave,
+  etiquetaDe,
   tarjeta,
   indicador,
   mesesDelRango,

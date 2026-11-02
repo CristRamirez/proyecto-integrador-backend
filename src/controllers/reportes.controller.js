@@ -1,6 +1,7 @@
 const ApiError = require('../utils/ApiError');
 const catalogo = require('../services/reportes/catalogo');
 const balanceGeneral = require('../services/reportes/balance.service');
+const ingresosPorMedio = require('../services/reportes/medios-pago.service');
 
 const MESES_POR_DEFECTO = 11;
 
@@ -86,4 +87,10 @@ async function balance(req, res) {
   responder(res, 'balance', rango, await balanceGeneral.generar(rango));
 }
 
-module.exports = { leerRango, responder, listar, balance };
+async function mediosPago(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'medios-pago', rango, await ingresosPorMedio.generar(rango));
+}
+
+module.exports = { leerRango, responder, listar, balance, mediosPago };
