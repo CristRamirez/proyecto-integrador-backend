@@ -13,7 +13,7 @@ const CATALOGO = [
     titulo: 'Cuenta corriente',
     descripcion: 'Estado de las cuotas del rango elegido: facturado, cobrado y pendiente.',
     endpoint: '/api/reportes/cuenta-corriente',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'clasificacion',
@@ -21,7 +21,7 @@ const CATALOGO = [
     titulo: 'Clasificación de internos',
     descripcion: 'Internos activos por situación judicial y por cobertura.',
     endpoint: '/api/reportes/clasificacion',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'medios-pago',
@@ -37,7 +37,7 @@ const CATALOGO = [
     titulo: 'Egresos por medio y categoría',
     descripcion: 'Egresos del rango elegido por medio de pago y por categoría.',
     endpoint: '/api/reportes/egresos',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'obras-sociales',
@@ -53,7 +53,7 @@ const CATALOGO = [
     titulo: 'Recuperados y abandonos',
     descripcion: 'Egresos de internos del rango elegido por tipo de egreso.',
     endpoint: '/api/reportes/egresos-internos',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'deuda',

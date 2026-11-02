@@ -2,6 +2,10 @@ const ApiError = require('../utils/ApiError');
 const catalogo = require('../services/reportes/catalogo');
 const balanceGeneral = require('../services/reportes/balance.service');
 const ingresosPorMedio = require('../services/reportes/medios-pago.service');
+const estadoCuentaCorriente = require('../services/reportes/cuenta-corriente.service');
+const clasificacionInternos = require('../services/reportes/clasificacion.service');
+const egresosPorMedio = require('../services/reportes/egresos.service');
+const egresosDeInternos = require('../services/reportes/egresos-internos.service');
 
 const MESES_POR_DEFECTO = 11;
 
@@ -93,4 +97,38 @@ async function mediosPago(req, res) {
   responder(res, 'medios-pago', rango, await ingresosPorMedio.generar(rango));
 }
 
-module.exports = { leerRango, responder, listar, balance, mediosPago };
+async function cuentaCorriente(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'cuenta-corriente', rango, await estadoCuentaCorriente.generar(rango));
+}
+
+async function clasificacion(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'clasificacion', rango, await clasificacionInternos.generar(rango));
+}
+
+async function egresos(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'egresos', rango, await egresosPorMedio.generar(rango));
+}
+
+async function egresosInternos(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'egresos-internos', rango, await egresosDeInternos.generar(rango));
+}
+
+module.exports = {
+  leerRango,
+  responder,
+  listar,
+  balance,
+  cuentaCorriente,
+  clasificacion,
+  mediosPago,
+  egresos,
+  egresosInternos,
+};
