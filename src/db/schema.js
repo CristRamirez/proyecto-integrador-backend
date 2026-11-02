@@ -92,6 +92,7 @@ const legajos = sqliteTable('legajos', {
   fecha_ingreso: text('fecha_ingreso'),
   fecha_egreso: text('fecha_egreso'),
   motivo_egreso: text('motivo_egreso'),
+  tipo_egreso: text('tipo_egreso'),
 });
 
 const contactosFamiliares = sqliteTable('contactos_familiares', {

@@ -8,6 +8,7 @@ const { ACCIONES } = auditoria;
 const ESTADO_INICIAL = 'activo';
 const ESTADO_BAJA = 'egresado';
 const MAXIMO_MOTIVO = 500;
+const TIPOS_EGRESO = ['alta_terapeutica', 'abandono', 'derivacion', 'otro'];
 const MINIMO_CONTACTOS = 2;
 const POR_PAGINA = 20;
 const MAXIMO_POR_PAGINA = 100;
@@ -354,6 +355,23 @@ function leerFechaEgreso(valor, fechaIngreso) {
   return fecha;
 }
 
+function leerTipoEgreso(valor) {
+  const tipo = texto(valor).toLowerCase();
+
+  if (!tipo) {
+    throw ApiError.solicitudInvalida('El tipo de egreso es obligatorio', 'DATOS_INCOMPLETOS');
+  }
+
+  if (!TIPOS_EGRESO.includes(tipo)) {
+    throw ApiError.solicitudInvalida(
+      `El tipo de egreso tiene que ser uno de: ${TIPOS_EGRESO.join(', ')}`,
+      'TIPO_EGRESO_INVALIDO'
+    );
+  }
+
+  return tipo;
+}
+
 async function baja(req, res) {
   const id = leerIdInterno(req.params.id);
   const cuerpo = req.body || {};
@@ -369,6 +387,7 @@ async function baja(req, res) {
 
   const motivo = leerMotivo(cuerpo.motivo);
   const fechaEgreso = leerFechaEgreso(cuerpo.fecha_egreso, actual.fecha_ingreso);
+  const tipoEgreso = leerTipoEgreso(cuerpo.tipo_egreso);
   const estado = await catalogos.buscarEstadoPorNombre(ESTADO_BAJA);
 
   if (!estado) {
@@ -377,11 +396,12 @@ async function baja(req, res) {
 
   await internos.actualizar(id, { estado_id: estado.id }, req.usuario.id);
   await internos.registrarEstado(id, estado.id, req.usuario.id, motivo, `${fechaEgreso} ${horaActual()}`);
-  await legajos.cerrarAbierto(id, fechaEgreso, motivo);
+  await legajos.cerrarAbierto(id, fechaEgreso, motivo, tipoEgreso);
 
   await auditoria.registrar(req.usuario.id, ACCIONES.BAJA, 'internos', id, {
     motivo,
     fecha_egreso: fechaEgreso,
+    tipo_egreso: tipoEgreso,
   });
 
   res.json({ ok: true, interno: await internos.obtenerFicha(id) });

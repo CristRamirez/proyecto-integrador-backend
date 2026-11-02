@@ -23,8 +23,9 @@ que se accede por su API HTTP.
    `db/schema.sql` y, para tener un usuario de prueba, `db/seed_admin.sql`.
 
    Sobre una base que ya existía hay que correr además los archivos de migración, una sola vez
-   cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos) y
-   `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo). Son necesarios porque
+   cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos),
+   `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
+   `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -138,6 +139,9 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
 | GET    | `/api/auditoria`          | rol `administrador`   | Registro de auditoría, filtrable por usuario, acción y fecha|
 | GET    | `/api/auditoria/filtros`  | rol `administrador`   | Acciones, entidades y usuarios para los filtros |
+| GET    | `/api/reportes`           | módulo `reportes`     | Catálogo de los reportes y cuáles ya están listos|
+| GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
+| GET    | `/api/reportes/medios-pago`| módulo `reportes`     | Lo cobrado por cada medio de pago (RP-04)       |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -554,11 +558,14 @@ Content-Type: application/json
 
 {
   "motivo": "Alta médica",
-  "fecha_egreso": "2026-10-03"
+  "fecha_egreso": "2026-10-03",
+  "tipo_egreso": "alta_terapeutica"
 }
 ```
 
-Los dos campos son obligatorios. La baja es **lógica**: el registro no se borra, el interno
+Los tres campos son obligatorios. `tipo_egreso` es uno de `alta_terapeutica`, `abandono`,
+`derivacion` u `otro`: va sin acentos ni espacios (se acepta en mayúsculas y se guarda en
+minúsculas) y el texto que ve el usuario lo pone el front. La baja es **lógica**: el registro no se borra, el interno
 pasa al estado `egresado` y deja de aparecer al filtrar por `estado=activo`. El cambio
 queda asentado en el historial de estados con el motivo y la fecha de egreso, además de
 quién lo hizo. Responde 200 con la ficha completa, igual que el `GET /api/internos/:id`.
@@ -570,14 +577,18 @@ cuotas nuevas.
 | Código | Cuándo |
 |--------|--------|
 | 400 `ID_INVALIDO` | el id no es un entero mayor a cero |
-| 400 `DATOS_INCOMPLETOS` | falta el motivo o la fecha de egreso |
+| 400 `DATOS_INCOMPLETOS` | falta el motivo, la fecha o el tipo de egreso |
 | 400 `MOTIVO_INVALIDO` | el motivo supera los 500 caracteres |
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD, es futura o es anterior al ingreso |
+| 400 `TIPO_EGRESO_INVALIDO` | el tipo no es alta_terapeutica, abandono, derivacion ni otro |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
 | 409 `INTERNO_YA_EGRESADO` | el interno ya estaba dado de baja |
 
 La baja además **cierra el legajo abierto**: le completa `fecha_egreso` con la fecha que se
-informó y `motivo_egreso` con el motivo.
+informó, `motivo_egreso` con el motivo y `tipo_egreso` con el tipo. La ficha del interno lo
+devuelve en cada legajo. Los legajos que ya estaban cerrados antes de correr
+`db/migracion_tipo_egreso.sql` quedaron con `tipo_egreso: "otro"`; los abiertos lo tienen en
+`null` hasta la baja.
 
 ### Reingreso de un interno
 
@@ -1062,6 +1073,124 @@ no estaba y el índice por fecha).
 | 400 `FECHA_INVALIDA` | `desde`/`hasta` no son AAAA-MM-DD, o `desde` es posterior a `hasta` |
 | 400 `PAGINACION_INVALIDA` | `pagina` o `por_pagina` no son enteros mayores a cero |
 | 403 `SIN_PERMISO` | el usuario no es administrador |
+
+## Reportes
+
+Los ocho reportes del catálogo (RP-01 a RP-08) devuelven **siempre la misma forma**, así el
+front arma una sola pantalla y cada reporte nuevo es cambiar el endpoint, no escribir otra
+vista. Todos piden el módulo `reportes` y aceptan el mismo rango de fechas.
+
+```
+GET /api/reportes/balance?desde=2026-01-01&hasta=2026-10-31
+Authorization: Bearer <token>
+```
+
+Los dos parámetros son opcionales: sin ellos se toman los últimos 12 meses (desde el primero
+del mes, once meses atrás, hasta hoy).
+
+```json
+{
+  "ok": true,
+  "reporte": "balance",
+  "codigo": "RP-01",
+  "titulo": "Balance general",
+  "rango": { "desde": "2026-01-01", "hasta": "2026-10-31" },
+  "tarjetas": [
+    { "clave": "ingresos", "etiqueta": "Ingresos cobrados", "valor": 80000, "formato": "moneda" },
+    { "clave": "egresos",  "etiqueta": "Egresos",           "valor": 30000, "formato": "moneda" },
+    { "clave": "balance",  "etiqueta": "Balance",           "valor": 50000, "formato": "moneda" }
+  ],
+  "serie": {
+    "etiquetas": ["2026-09", "2026-10"],
+    "lineas": [
+      { "clave": "ingresos", "etiqueta": "Ingresos", "valores": [30000, 50000] },
+      { "clave": "egresos",  "etiqueta": "Egresos",  "valores": [20000, 10000] }
+    ]
+  },
+  "indicadores": [
+    { "clave": "egresos_sobre_ingresos", "etiqueta": "Egresos sobre los ingresos", "valor": 37.5, "formato": "porcentaje" }
+  ],
+  "detalle": null
+}
+```
+
+| Campo | Qué es |
+|-------|--------|
+| `tarjetas` | Los números grandes de arriba |
+| `serie` | El gráfico: `etiquetas` son los meses del rango (van todos, también los que no tuvieron movimiento) y cada línea trae un valor por mes, en el mismo orden |
+| `indicadores` | Los porcentajes y conteos que acompañan al gráfico |
+| `detalle` | La tabla, con `columnas` y `filas`. Es `null` en los reportes que no listan registros |
+| `formato` | `moneda`, `porcentaje`, `numero` o `texto`. Le dice al front cómo mostrar el valor sin tener que conocer cada reporte |
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `FECHA_INVALIDA` | `desde` o `hasta` no tienen el formato AAAA-MM-DD |
+| 400 `RANGO_INVALIDO` | `desde` es posterior a `hasta` |
+
+### Catálogo de reportes
+
+```
+GET /api/reportes
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "ok": true,
+  "reportes": [
+    {
+      "id": "balance",
+      "codigo": "RP-01",
+      "titulo": "Balance general",
+      "descripcion": "Ingresos cobrados contra egresos del rango elegido.",
+      "endpoint": "/api/reportes/balance",
+      "disponible": true
+    }
+  ]
+}
+```
+
+Están los ocho desde el principio: los que todavía no se implementaron vienen con
+`disponible: false`, para que el front los muestre en el selector deshabilitados en vez de
+tener la lista escrita a mano. Cuando un reporte se termina, se cambia esa bandera en
+`services/reportes/catalogo.js` y aparece solo.
+
+### Balance general (RP-01)
+
+Compara lo cobrado (por fecha de pago) contra los egresos del rango. Los egresos anulados no
+suman. Si no hubo ingresos, los porcentajes dan 0 en vez de romper.
+
+### Ingresos por medio de pago (RP-04)
+
+Lo cobrado en el rango, abierto por medio de pago. La primera tarjeta es el total y después
+va una por medio; los indicadores son la participación de cada uno sobre ese total.
+
+Aparecen **siempre los cinco medios del catálogo**, en orden alfabético, aunque alguno no
+haya tenido movimiento: así las tarjetas y las líneas del gráfico no cambian de lugar al
+mover el rango. La clave de cada uno sale del nombre sin acentos ni espacios (`obra_social`),
+y la etiqueta es el nombre para mostrar (`Obra social`).
+
+```json
+{
+  "tarjetas": [
+    { "clave": "total",         "etiqueta": "Total cobrado",  "valor": 110000, "formato": "moneda" },
+    { "clave": "efectivo",      "etiqueta": "Efectivo",       "valor": 50000,  "formato": "moneda" },
+    { "clave": "transferencia", "etiqueta": "Transferencia",  "valor": 50000,  "formato": "moneda" }
+  ],
+  "indicadores": [
+    { "clave": "participacion_efectivo", "etiqueta": "Participación de efectivo", "valor": 45.45, "formato": "porcentaje" }
+  ]
+}
+```
+
+### Cómo se agrega un reporte
+
+Cada reporte vive en su propio archivo, `services/reportes/<id>.service.js`, y exporta
+`generar({ desde, hasta })` devolviendo `{ tarjetas, serie, indicadores, detalle }`. Los
+armadores comunes (`tarjeta`, `indicador`, `linea`, `serie`, `mesesDelRango`, `enRango`,
+`suma`, `porcentaje`) están en `services/reportes/comunes.js`, y el controlador se encarga
+del rango y de la envoltura. Para sumarlo: el archivo del servicio, una función en
+`reportes.controller.js`, una línea en `reportes.routes.js` y pasar su `disponible` a `true`.
 
 ## Documentación para el front (Swagger)
 
