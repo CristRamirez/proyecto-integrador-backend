@@ -420,11 +420,12 @@ paths:
         aparecer al filtrar por `estado=activo` y el cambio queda asentado en su historial de
         estados con el motivo, la fecha de egreso y quién lo hizo.
 
-        `motivo` y `fecha_egreso` son obligatorios. La fecha no puede ser futura ni anterior a
-        la fecha de ingreso del interno.
+        `motivo`, `fecha_egreso` y `tipo_egreso` son obligatorios. La fecha no puede ser futura
+        ni anterior a la fecha de ingreso del interno. El tipo es `alta_terapeutica`, `abandono`,
+        `derivacion` u `otro`.
 
         La baja además cierra el legajo abierto: le completa `fecha_egreso` con la fecha que se
-        informó y `motivo_egreso` con el motivo.
+        informó, `motivo_egreso` con el motivo y `tipo_egreso` con el tipo.
 
         Si la persona vuelve, no se la da de alta de nuevo: se usa `POST /internos/{id}/reingreso`,
         que abre un legajo nuevo sobre la misma ficha.
@@ -436,6 +437,7 @@ paths:
             example:
               motivo: Alta médica
               fecha_egreso: '2026-10-03'
+              tipo_egreso: alta_terapeutica
       responses:
         '200':
           description: Interno dado de baja, devuelve la ficha completa
@@ -447,7 +449,7 @@ paths:
                   ok: { type: boolean, example: true }
                   interno: { $ref: '#/components/schemas/InternoFichaCompleta' }
         '400':
-          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` (falta el motivo o la fecha), `MOTIVO_INVALIDO` o `FECHA_INVALIDA`'
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` (falta el motivo, la fecha o el tipo), `MOTIVO_INVALIDO`, `FECHA_INVALIDA` o `TIPO_EGRESO_INVALIDO`'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1817,6 +1819,12 @@ components:
         fecha_ingreso: { type: string, format: date, nullable: true, example: '2026-10-02' }
         fecha_egreso: { type: string, format: date, nullable: true, example: '2026-10-10' }
         motivo_egreso: { type: string, nullable: true, example: Alta médica }
+        tipo_egreso:
+          type: string
+          nullable: true
+          enum: [alta_terapeutica, abandono, derivacion, otro]
+          description: null mientras el legajo está abierto. Los cerrados antes de la migración quedaron en otro.
+          example: alta_terapeutica
 
     InternoReingreso:
       type: object
@@ -1879,7 +1887,7 @@ components:
 
     InternoBaja:
       type: object
-      required: [motivo, fecha_egreso]
+      required: [motivo, fecha_egreso, tipo_egreso]
       properties:
         motivo:
           type: string
@@ -1891,6 +1899,11 @@ components:
           format: date
           description: No puede ser futura ni anterior a la fecha de ingreso del interno.
           example: '2026-10-03'
+        tipo_egreso:
+          type: string
+          enum: [alta_terapeutica, abandono, derivacion, otro]
+          description: Se acepta en mayúsculas y se guarda en minúsculas. El texto para mostrar lo pone el front.
+          example: alta_terapeutica
 
     ParametrosNuevos:
       type: object

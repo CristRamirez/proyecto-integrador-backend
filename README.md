@@ -23,8 +23,9 @@ que se accede por su API HTTP.
    `db/schema.sql` y, para tener un usuario de prueba, `db/seed_admin.sql`.
 
    Sobre una base que ya existía hay que correr además los archivos de migración, una sola vez
-   cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos) y
-   `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo). Son necesarios porque
+   cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos),
+   `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
+   `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -557,11 +558,14 @@ Content-Type: application/json
 
 {
   "motivo": "Alta médica",
-  "fecha_egreso": "2026-10-03"
+  "fecha_egreso": "2026-10-03",
+  "tipo_egreso": "alta_terapeutica"
 }
 ```
 
-Los dos campos son obligatorios. La baja es **lógica**: el registro no se borra, el interno
+Los tres campos son obligatorios. `tipo_egreso` es uno de `alta_terapeutica`, `abandono`,
+`derivacion` u `otro`: va sin acentos ni espacios (se acepta en mayúsculas y se guarda en
+minúsculas) y el texto que ve el usuario lo pone el front. La baja es **lógica**: el registro no se borra, el interno
 pasa al estado `egresado` y deja de aparecer al filtrar por `estado=activo`. El cambio
 queda asentado en el historial de estados con el motivo y la fecha de egreso, además de
 quién lo hizo. Responde 200 con la ficha completa, igual que el `GET /api/internos/:id`.
@@ -573,14 +577,18 @@ cuotas nuevas.
 | Código | Cuándo |
 |--------|--------|
 | 400 `ID_INVALIDO` | el id no es un entero mayor a cero |
-| 400 `DATOS_INCOMPLETOS` | falta el motivo o la fecha de egreso |
+| 400 `DATOS_INCOMPLETOS` | falta el motivo, la fecha o el tipo de egreso |
 | 400 `MOTIVO_INVALIDO` | el motivo supera los 500 caracteres |
 | 400 `FECHA_INVALIDA` | la fecha no tiene formato AAAA-MM-DD, es futura o es anterior al ingreso |
+| 400 `TIPO_EGRESO_INVALIDO` | el tipo no es alta_terapeutica, abandono, derivacion ni otro |
 | 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
 | 409 `INTERNO_YA_EGRESADO` | el interno ya estaba dado de baja |
 
 La baja además **cierra el legajo abierto**: le completa `fecha_egreso` con la fecha que se
-informó y `motivo_egreso` con el motivo.
+informó, `motivo_egreso` con el motivo y `tipo_egreso` con el tipo. La ficha del interno lo
+devuelve en cada legajo. Los legajos que ya estaban cerrados antes de correr
+`db/migracion_tipo_egreso.sql` quedaron con `tipo_egreso: "otro"`; los abiertos lo tienen en
+`null` hasta la baja.
 
 ### Reingreso de un interno
 

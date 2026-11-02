@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS legajos (
   fecha_ingreso  TEXT,                              -- inicio de la estadía
   fecha_egreso   TEXT,                              -- NULL mientras el legajo está abierto
   motivo_egreso  TEXT,
+  tipo_egreso    TEXT,                              -- alta_terapeutica, abandono, derivacion, otro
   FOREIGN KEY (interno_id) REFERENCES internos(id)
 );
 

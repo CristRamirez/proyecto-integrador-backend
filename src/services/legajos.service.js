@@ -9,6 +9,7 @@ const COLUMNAS = {
   fecha_ingreso: legajos.fecha_ingreso,
   fecha_egreso: legajos.fecha_egreso,
   motivo_egreso: legajos.motivo_egreso,
+  tipo_egreso: legajos.tipo_egreso,
 };
 
 // Arma el número de legajo del día con el formato LEG-AAAAMMDD-NNNN (RN8).
@@ -45,10 +46,10 @@ async function listarPorInterno(internoId) {
     .orderBy(asc(legajos.id));
 }
 
-async function cerrarAbierto(internoId, fechaEgreso, motivoEgreso) {
+async function cerrarAbierto(internoId, fechaEgreso, motivoEgreso, tipoEgreso) {
   await db()
     .update(legajos)
-    .set({ fecha_egreso: fechaEgreso, motivo_egreso: motivoEgreso })
+    .set({ fecha_egreso: fechaEgreso, motivo_egreso: motivoEgreso, tipo_egreso: tipoEgreso })
     .where(and(eq(legajos.interno_id, internoId), isNull(legajos.fecha_egreso)));
 }
 
