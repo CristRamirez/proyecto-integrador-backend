@@ -1160,6 +1160,45 @@ tener la lista escrita a mano. Cuando un reporte se termina, se cambia esa bande
 Compara lo cobrado (por fecha de pago) contra los egresos del rango. Los egresos anulados no
 suman. Si no hubo ingresos, los porcentajes dan 0 en vez de romper.
 
+### Cuenta corriente (RP-02)
+
+```
+GET /api/reportes/cuenta-corriente?desde=2026-09-01&hasta=2026-11-30
+```
+
+Las cuotas que **vencen** dentro del rango, sin las anuladas. Las tarjetas son lo facturado
+(el total de cada cuota, con el interés de mora si se le aplicó), lo cobrado (lo que ya se
+descontó del saldo) y lo pendiente (la suma de los saldos). El gráfico tiene cobrado y
+pendiente por mes de vencimiento.
+
+Los indicadores miran a los internos que tienen cuotas en el rango (`internos_con_cuotas`,
+como número) y dicen qué porcentaje de ellos está en cada situación:
+
+| Indicador | Cuenta al interno si... |
+|-----------|-------------------------|
+| `con_deuda` | alguna de sus cuotas del rango tiene saldo |
+| `con_pago_parcial` | alguna tiene saldo pero ya se pagó una parte |
+| `en_mora` | alguna ya venció y le queda saldo |
+| `al_dia` | no tiene ninguna vencida con saldo (es el resto de `en_mora`) |
+
+Un interno puede estar en más de uno: con una cuota parcial vencida suma en deuda, en
+parcial y en mora.
+
+### Clasificación de internos (RP-03)
+
+```
+GET /api/reportes/clasificacion?desde=2026-09-01&hasta=2026-11-30
+```
+
+Lo cobrado en el rango (por fecha de pago) según la cobertura del interno que pagó:
+`obra_social` si tiene una obra social cargada, `particular` si no tiene ninguna o tiene
+"Sin cobertura". Las tarjetas son el total y lo cobrado a cada grupo, y el gráfico tiene una
+línea por grupo. Las dos aparecen siempre, aunque alguna no haya tenido cobros.
+
+Los indicadores son **la foto de hoy**, no dependen del rango: cuántos internos activos hay
+(`activos`, como número) y qué porcentaje de ellos son judicializados, con obra social y
+particulares.
+
 ### Ingresos por medio de pago (RP-04)
 
 Lo cobrado en el rango, abierto por medio de pago. La primera tarjeta es el total y después
@@ -1182,6 +1221,37 @@ y la etiqueta es el nombre para mostrar (`Obra social`).
   ]
 }
 ```
+
+### Egresos por medio y categoría (RP-05)
+
+```
+GET /api/reportes/egresos?desde=2026-09-01&hasta=2026-11-30
+```
+
+Los egresos del rango, **sin los anulados**. Funciona igual que RP-04 pero del lado de los
+gastos: la primera tarjeta es el total de egresos y después va una por medio de pago, con
+los cinco medios del catálogo siempre en el mismo orden. El gráfico tiene una línea por medio.
+
+Los indicadores son la participación de cada medio (`participacion_<medio>`) y, después, la
+de las **cinco categorías que más gastaron** en el rango (`categoria_<categoria>`), de mayor a
+menor. Como las categorías son texto libre, esas sí cambian según el rango. Los egresos sin
+categoría se agrupan como `sin categoría`.
+
+### Recuperados y abandonos (RP-07)
+
+```
+GET /api/reportes/egresos-internos?desde=2026-09-01&hasta=2026-11-30
+```
+
+Los legajos que se **cerraron** dentro del rango (por `fecha_egreso`), abiertos por
+`tipo_egreso`. Necesita la migración `db/migracion_tipo_egreso.sql`. Los legajos sin tipo
+cuentan como `otro`.
+
+| Parte | Qué trae |
+|-------|----------|
+| Tarjetas | `recuperados` (altas terapéuticas) y `abandonos` como números, y `tasa_recuperacion`: las altas terapéuticas sobre el total de egresos, en porcentaje |
+| Gráfico | una línea por tipo (`alta_terapeutica`, `abandono`, `derivacion`, `otro`) con la cantidad de egresos de cada mes |
+| Indicadores | `egresos` (el total, como número), `porcentaje_<tipo>` para cada tipo y `dias_promedio_estadia`: el promedio de días entre `fecha_ingreso` y `fecha_egreso` de esos legajos (los que no tienen fecha de ingreso no entran) |
 
 ### Cómo se agrega un reporte
 

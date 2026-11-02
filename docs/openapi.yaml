@@ -1565,6 +1565,58 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /reportes/cuenta-corriente:
+    get:
+      tags: [Reportes]
+      summary: Cuenta corriente (RP-02)
+      description: |
+        Las cuotas que vencen dentro del rango, sin las anuladas. Tarjetas: `facturado`
+        (total de las cuotas, con la mora aplicada), `cobrado` (lo descontado del saldo) y
+        `pendiente` (la suma de los saldos). El gráfico tiene cobrado y pendiente por mes de
+        vencimiento.
+
+        Indicadores sobre los internos con cuotas en el rango (`internos_con_cuotas`, número):
+        porcentaje `con_deuda` (alguna cuota con saldo), `con_pago_parcial` (alguna con saldo
+        y pagada en parte), `en_mora` (alguna vencida con saldo) y `al_dia` (ninguna vencida
+        con saldo). Un interno puede sumar en más de uno.
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /reportes/clasificacion:
+    get:
+      tags: [Reportes]
+      summary: Clasificación de internos (RP-03)
+      description: |
+        Lo cobrado en el rango (por fecha de pago) según la cobertura del interno:
+        `obra_social` si tiene una cargada, `particular` si no tiene o tiene "Sin cobertura".
+        Tarjetas: el total y lo cobrado a cada grupo. El gráfico tiene una línea por grupo, y
+        las dos vienen siempre.
+
+        Los indicadores son la foto de hoy y no dependen del rango: `activos` (número) y el
+        porcentaje de judicializados, con obra social y particulares sobre los activos.
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   /reportes/medios-pago:
     get:
       tags: [Reportes]
@@ -1575,6 +1627,58 @@ paths:
 
         Vienen siempre los cinco medios del catálogo, en orden alfabético, aunque alguno no
         haya tenido movimiento, así la pantalla no cambia de orden al mover el rango.
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /reportes/egresos:
+    get:
+      tags: [Reportes]
+      summary: Egresos por medio y categoría (RP-05)
+      description: |
+        Los egresos del rango, sin los anulados. La primera tarjeta es el total de egresos y
+        después va una por medio de pago (los cinco del catálogo, siempre en el mismo orden).
+        El gráfico tiene una línea por medio.
+
+        Indicadores: la participación de cada medio (`participacion_<medio>`) y la de las
+        cinco categorías que más gastaron en el rango (`categoria_<categoria>`), de mayor a
+        menor. Los egresos sin categoría se agrupan como `sin categoría`.
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /reportes/egresos-internos:
+    get:
+      tags: [Reportes]
+      summary: Recuperados y abandonos (RP-07)
+      description: |
+        Los legajos cerrados dentro del rango (por `fecha_egreso`), abiertos por
+        `tipo_egreso`. Los que no tienen tipo cuentan como `otro`.
+
+        Tarjetas: `recuperados` (altas terapéuticas) y `abandonos` como números, y
+        `tasa_recuperacion` (altas terapéuticas sobre el total, en porcentaje). El gráfico
+        tiene una línea por tipo con la cantidad de egresos de cada mes.
+
+        Indicadores: `egresos` (total, número), `porcentaje_<tipo>` para cada tipo y
+        `dias_promedio_estadia`, el promedio de días entre `fecha_ingreso` y `fecha_egreso`.
       parameters:
         - $ref: '#/components/parameters/RangoDesde'
         - $ref: '#/components/parameters/RangoHasta'
