@@ -138,6 +138,8 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
 | GET    | `/api/auditoria`          | rol `administrador`   | Registro de auditoría, filtrable por usuario, acción y fecha|
 | GET    | `/api/auditoria/filtros`  | rol `administrador`   | Acciones, entidades y usuarios para los filtros |
+| GET    | `/api/reportes`           | módulo `reportes`     | Catálogo de los reportes y cuáles ya están listos|
+| GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -1062,6 +1064,101 @@ no estaba y el índice por fecha).
 | 400 `FECHA_INVALIDA` | `desde`/`hasta` no son AAAA-MM-DD, o `desde` es posterior a `hasta` |
 | 400 `PAGINACION_INVALIDA` | `pagina` o `por_pagina` no son enteros mayores a cero |
 | 403 `SIN_PERMISO` | el usuario no es administrador |
+
+## Reportes
+
+Los ocho reportes del catálogo (RP-01 a RP-08) devuelven **siempre la misma forma**, así el
+front arma una sola pantalla y cada reporte nuevo es cambiar el endpoint, no escribir otra
+vista. Todos piden el módulo `reportes` y aceptan el mismo rango de fechas.
+
+```
+GET /api/reportes/balance?desde=2026-01-01&hasta=2026-10-31
+Authorization: Bearer <token>
+```
+
+Los dos parámetros son opcionales: sin ellos se toman los últimos 12 meses (desde el primero
+del mes, once meses atrás, hasta hoy).
+
+```json
+{
+  "ok": true,
+  "reporte": "balance",
+  "codigo": "RP-01",
+  "titulo": "Balance general",
+  "rango": { "desde": "2026-01-01", "hasta": "2026-10-31" },
+  "tarjetas": [
+    { "clave": "ingresos", "etiqueta": "Ingresos cobrados", "valor": 80000, "formato": "moneda" },
+    { "clave": "egresos",  "etiqueta": "Egresos",           "valor": 30000, "formato": "moneda" },
+    { "clave": "balance",  "etiqueta": "Balance",           "valor": 50000, "formato": "moneda" }
+  ],
+  "serie": {
+    "etiquetas": ["2026-09", "2026-10"],
+    "lineas": [
+      { "clave": "ingresos", "etiqueta": "Ingresos", "valores": [30000, 50000] },
+      { "clave": "egresos",  "etiqueta": "Egresos",  "valores": [20000, 10000] }
+    ]
+  },
+  "indicadores": [
+    { "clave": "egresos_sobre_ingresos", "etiqueta": "Egresos sobre los ingresos", "valor": 37.5, "formato": "porcentaje" }
+  ],
+  "detalle": null
+}
+```
+
+| Campo | Qué es |
+|-------|--------|
+| `tarjetas` | Los números grandes de arriba |
+| `serie` | El gráfico: `etiquetas` son los meses del rango (van todos, también los que no tuvieron movimiento) y cada línea trae un valor por mes, en el mismo orden |
+| `indicadores` | Los porcentajes y conteos que acompañan al gráfico |
+| `detalle` | La tabla, con `columnas` y `filas`. Es `null` en los reportes que no listan registros |
+| `formato` | `moneda`, `porcentaje`, `numero` o `texto`. Le dice al front cómo mostrar el valor sin tener que conocer cada reporte |
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `FECHA_INVALIDA` | `desde` o `hasta` no tienen el formato AAAA-MM-DD |
+| 400 `RANGO_INVALIDO` | `desde` es posterior a `hasta` |
+
+### Catálogo de reportes
+
+```
+GET /api/reportes
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "ok": true,
+  "reportes": [
+    {
+      "id": "balance",
+      "codigo": "RP-01",
+      "titulo": "Balance general",
+      "descripcion": "Ingresos cobrados contra egresos del rango elegido.",
+      "endpoint": "/api/reportes/balance",
+      "disponible": true
+    }
+  ]
+}
+```
+
+Están los ocho desde el principio: los que todavía no se implementaron vienen con
+`disponible: false`, para que el front los muestre en el selector deshabilitados en vez de
+tener la lista escrita a mano. Cuando un reporte se termina, se cambia esa bandera en
+`services/reportes/catalogo.js` y aparece solo.
+
+### Balance general (RP-01)
+
+Compara lo cobrado (por fecha de pago) contra los egresos del rango. Los egresos anulados no
+suman. Si no hubo ingresos, los porcentajes dan 0 en vez de romper.
+
+### Cómo se agrega un reporte
+
+Cada reporte vive en su propio archivo, `services/reportes/<id>.service.js`, y exporta
+`generar({ desde, hasta })` devolviendo `{ tarjetas, serie, indicadores, detalle }`. Los
+armadores comunes (`tarjeta`, `indicador`, `linea`, `serie`, `mesesDelRango`, `enRango`,
+`suma`, `porcentaje`) están en `services/reportes/comunes.js`, y el controlador se encarga
+del rango y de la envoltura. Para sumarlo: el archivo del servicio, una función en
+`reportes.controller.js`, una línea en `reportes.routes.js` y pasar su `disponible` a `true`.
 
 ## Documentación para el front (Swagger)
 

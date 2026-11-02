@@ -36,6 +36,8 @@ tags:
     description: Cuotas, pagos y egresos
   - name: Auditoría
     description: Registro de altas, modificaciones y bajas (solo rol administrador)
+  - name: Reportes
+    description: Los ocho reportes del catálogo, todos con la misma forma de respuesta
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -1511,6 +1513,57 @@ paths:
         '404': { $ref: '#/components/responses/UsuarioNoEncontrado' }
 
   # ------------------------------------------------------------------
+  # REPORTES
+  # ------------------------------------------------------------------
+  /reportes:
+    get:
+      tags: [Reportes]
+      summary: Catálogo de reportes
+      description: |
+        Los ocho reportes (RP-01 a RP-08) con su endpoint. Los que todavía no se
+        implementaron vienen con `disponible: false`, así el front los muestra en el selector
+        deshabilitados en vez de tener la lista escrita a mano.
+      responses:
+        '200':
+          description: El catálogo completo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  reportes:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReporteDelCatalogo' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /reportes/balance:
+    get:
+      tags: [Reportes]
+      summary: Balance general (RP-01)
+      description: |
+        Lo cobrado (por fecha de pago) contra los egresos del rango. Los egresos anulados no
+        suman. Si no hubo ingresos los porcentajes dan 0.
+
+        La respuesta tiene la misma forma que la de todos los reportes: `tarjetas` son los
+        números de arriba, `serie` es el gráfico (con un punto por mes del rango, también los
+        meses sin movimiento), `indicadores` los porcentajes y `detalle` la tabla, que en
+        este reporte es `null`.
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------
   /ejemplo/publico:
@@ -1577,6 +1630,20 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1, example: 2 }
+    RangoDesde:
+      name: desde
+      in: query
+      required: false
+      description: Desde esta fecha, inclusive. Por defecto, el primer día del mes de hace once meses.
+      schema: { type: string, format: date }
+      example: '2026-01-01'
+    RangoHasta:
+      name: hasta
+      in: query
+      required: false
+      description: Hasta esta fecha, inclusive. Por defecto, hoy.
+      schema: { type: string, format: date }
+      example: '2026-10-31'
 
   responses:
     SolicitudInvalida:
@@ -1630,6 +1697,13 @@ components:
       description: |
         `USUARIO_DUPLICADO`: ya hay un usuario con ese nombre de usuario.
         `EMAIL_DUPLICADO`: ya hay un usuario con ese email.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RangoInvalido:
+      description: |
+        `FECHA_INVALIDA`: `desde` o `hasta` no tienen el formato AAAA-MM-DD.
+        `RANGO_INVALIDO`: `desde` es posterior a `hasta`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2039,6 +2113,88 @@ components:
       required: [activo]
       properties:
         activo: { type: boolean, example: false }
+
+    ReporteDelCatalogo:
+      type: object
+      properties:
+        id: { type: string, example: balance }
+        codigo: { type: string, example: RP-01 }
+        titulo: { type: string, example: Balance general }
+        descripcion: { type: string, example: Ingresos cobrados contra egresos del rango elegido. }
+        endpoint: { type: string, example: /api/reportes/balance }
+        disponible:
+          type: boolean
+          description: En false, el reporte todavía no está implementado.
+          example: true
+
+    ValorDeReporte:
+      type: object
+      description: Un número del reporte, con el formato en el que hay que mostrarlo.
+      properties:
+        clave: { type: string, example: ingresos }
+        etiqueta: { type: string, example: Ingresos cobrados }
+        valor: { type: number, example: 80000 }
+        formato: { type: string, enum: [moneda, porcentaje, numero, texto], example: moneda }
+
+    SerieDeReporte:
+      type: object
+      description: El gráfico. Cada línea trae un valor por etiqueta, en el mismo orden.
+      properties:
+        etiquetas:
+          type: array
+          description: Los meses del rango, también los que no tuvieron movimiento.
+          items: { type: string }
+          example: ['2026-09', '2026-10']
+        lineas:
+          type: array
+          items:
+            type: object
+            properties:
+              clave: { type: string, example: ingresos }
+              etiqueta: { type: string, example: Ingresos }
+              valores:
+                type: array
+                items: { type: number }
+                example: [30000, 50000]
+
+    DetalleDeReporte:
+      type: object
+      nullable: true
+      description: La tabla del reporte. Es null en los que no listan registros.
+      properties:
+        columnas:
+          type: array
+          items:
+            type: object
+            properties:
+              clave: { type: string, example: legajo }
+              etiqueta: { type: string, example: Legajo }
+              formato: { type: string, enum: [moneda, porcentaje, numero, texto], example: texto }
+        filas:
+          type: array
+          items: { type: object }
+
+    Reporte:
+      type: object
+      description: La forma que devuelven los ocho reportes.
+      properties:
+        ok: { type: boolean, example: true }
+        reporte: { type: string, example: balance }
+        codigo: { type: string, example: RP-01 }
+        titulo: { type: string, example: Balance general }
+        rango:
+          type: object
+          properties:
+            desde: { type: string, format: date, example: '2026-01-01' }
+            hasta: { type: string, format: date, example: '2026-10-31' }
+        tarjetas:
+          type: array
+          items: { $ref: '#/components/schemas/ValorDeReporte' }
+        serie: { $ref: '#/components/schemas/SerieDeReporte' }
+        indicadores:
+          type: array
+          items: { $ref: '#/components/schemas/ValorDeReporte' }
+        detalle: { $ref: '#/components/schemas/DetalleDeReporte' }
 
     Paginacion:
       type: object
