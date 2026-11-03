@@ -26,7 +26,8 @@ que se accede por su API HTTP.
    cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos),
    `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
    `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo) y
-   `db/migracion_notas.sql` (notas libres del interno). Son necesarios porque
+   `db/migracion_notas.sql` (notas libres del interno) y
+   `db/migracion_ingresos.sql` (ingresos que no son cuotas). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -140,6 +141,10 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/egresos`            | módulo `cobranzas`    | Egresos del período, con totales por categoría (BS-12)|
 | GET    | `/api/egresos/categorias` | módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
 | POST   | `/api/egresos`            | módulo `cobranzas`    | Registra un egreso institucional (BS-12)        |
+| GET    | `/api/ingresos`           | módulo `cobranzas`    | Ingresos del período que no son cuotas, con totales|
+| GET    | `/api/ingresos/categorias`| módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
+| POST   | `/api/ingresos`           | módulo `cobranzas`    | Registra un ingreso institucional               |
+| POST   | `/api/ingresos/:id/anular`| módulo `cobranzas`    | Anula un ingreso cargado por error              |
 | PUT    | `/api/egresos/:id`        | módulo `cobranzas`    | Edita un egreso que no esté anulado (BS-12)     |
 | POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
 | GET    | `/api/auditoria`          | rol `administrador`   | Registro de auditoría, filtrable por usuario, acción y fecha|
@@ -1027,6 +1032,70 @@ agrega a `egresos` el `estado` y las columnas de la anulación y de la edición.
 | 404 `EGRESO_NO_ENCONTRADO` | al editar o anular un egreso que no existe |
 | 409 `EGRESO_ANULADO` | se quiso editar un egreso anulado |
 | 409 `EGRESO_YA_ANULADO` | se quiso anular un egreso que ya estaba anulado |
+
+### Ingresos institucionales
+
+La plata que entra y **no es una cuota**: donaciones, subsidios, rifas, lo que sea que no
+esté atado a un interno. Es el espejo de los egresos y funciona igual.
+
+```
+POST /api/ingresos
+Authorization: Bearer <token>
+
+{
+  "concepto": "Donación de la parroquia",
+  "categoria": "donaciones",
+  "monto": 50000,
+  "medio_pago_id": 1,
+  "fecha": "2026-11-02",
+  "comprobante": "REC-0001",
+  "observaciones": "Colecta de octubre"
+}
+```
+
+`fecha`, `comprobante` y `observaciones` son opcionales; sin fecha se usa la del día y no
+puede ser futura. La categoría se guarda en minúsculas para que no se dupliquen en los
+totales (`Donaciones` y `donaciones` son la misma).
+
+```
+GET /api/ingresos?anio=2026&mes=11&categoria=donaciones&pagina=1&por_pagina=20
+Authorization: Bearer <token>
+```
+
+`anio` y `mes` son obligatorios. La respuesta trae el `resumen` del período —cantidad,
+total, cuántos se anularon y el desglose por categoría de mayor a menor—, el listado del más
+nuevo al más viejo y la paginación. El resumen es de todo el período y **no** aplica el
+filtro de categoría, igual que en los egresos.
+
+**Un ingreso no se borra, se anula.**
+
+```
+POST /api/ingresos/12/anular
+Authorization: Bearer <token>
+
+{ "motivo": "Se cargó dos veces" }
+```
+
+Queda con `estado: anulado`, el motivo, quién lo anuló y cuándo. Sigue en el listado pero
+deja de sumar en el resumen.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto, el medio de pago o el motivo de la anulación |
+| 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
+| 400 `MEDIO_PAGO_INEXISTENTE` | el `medio_pago_id` no está en el catálogo |
+| 400 `FECHA_INVALIDA` | la fecha no es AAAA-MM-DD o es futura |
+| 400 `PERIODO_INVALIDO` | `anio` o `mes` fuera de rango |
+| 404 `INGRESO_NO_ENCONTRADO` | no hay un ingreso con ese id |
+| 409 `INGRESO_YA_ANULADO` | ya estaba anulado |
+
+El alta y la anulación quedan en la auditoría con entidad `ingresos`.
+
+Para una base ya creada hay que correr una vez `db/migracion_ingresos.sql`.
+
+**Ojo con el balance:** el reporte RP-01 compara lo cobrado de las **cuotas** contra los
+egresos; estos ingresos todavía no entran ahí. Si la Dirección los quiere sumados al
+balance, es una decisión a tomar y un cambio aparte en ese reporte.
 
 ### Interés por mora (BS-11)
 
