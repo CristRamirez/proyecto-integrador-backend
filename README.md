@@ -25,7 +25,9 @@ que se accede por su API HTTP.
    Sobre una base que ya existía hay que correr además los archivos de migración, una sola vez
    cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos),
    `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
-   `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo). Son necesarios porque
+   `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo) y
+   `db/migracion_notas.sql` (notas libres del interno) y
+   `db/migracion_ingresos.sql` (ingresos que no son cuotas). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -123,6 +125,10 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
 | POST   | `/api/internos/:id/baja`  | módulo `internos`     | Baja lógica del interno con motivo y fecha (BS-6)|
 | POST   | `/api/internos/:id/reingreso` | módulo `internos` | Reingreso: vuelve a activo y abre un legajo nuevo|
+| GET    | `/api/internos/:id/notas` | módulo `internos`     | Notas libres del interno, de la más nueva a la más vieja|
+| POST   | `/api/internos/:id/notas` | módulo `internos`     | Agrega una nota                                 |
+| PUT    | `/api/internos/:id/notas/:notaId` | módulo `internos` | Edita el texto de una nota               |
+| DELETE | `/api/internos/:id/notas/:notaId` | módulo `internos` | Borra una nota                           |
 | GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
 | GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
@@ -135,6 +141,10 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/egresos`            | módulo `cobranzas`    | Egresos del período, con totales por categoría (BS-12)|
 | GET    | `/api/egresos/categorias` | módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
 | POST   | `/api/egresos`            | módulo `cobranzas`    | Registra un egreso institucional (BS-12)        |
+| GET    | `/api/ingresos`           | módulo `cobranzas`    | Ingresos del período que no son cuotas, con totales|
+| GET    | `/api/ingresos/categorias`| módulo `cobranzas`    | Las categorías ya usadas, para el desplegable   |
+| POST   | `/api/ingresos`           | módulo `cobranzas`    | Registra un ingreso institucional               |
+| POST   | `/api/ingresos/:id/anular`| módulo `cobranzas`    | Anula un ingreso cargado por error              |
 | PUT    | `/api/egresos/:id`        | módulo `cobranzas`    | Edita un egreso que no esté anulado (BS-12)     |
 | POST   | `/api/egresos/:id/anular` | módulo `cobranzas`    | Anula un egreso con motivo, sin borrarlo (BS-12)|
 | GET    | `/api/auditoria`          | rol `administrador`   | Registro de auditoría, filtrable por usuario, acción y fecha|
@@ -142,6 +152,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/reportes`           | módulo `reportes`     | Catálogo de los reportes y cuáles ya están listos|
 | GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
 | GET    | `/api/reportes/medios-pago`| módulo `reportes`     | Lo cobrado por cada medio de pago (RP-04)       |
+| GET    | `/api/reportes/deuda`     | módulo `reportes`     | Internos con deuda vencida, con el detalle (RP-08)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -643,6 +654,61 @@ actual:
 ]
 ```
 
+### Notas del interno
+
+Observaciones libres que no entran en los campos de la ficha: lo que pidió, lo que pasó un
+día, lo que hay que tener en cuenta. Van aparte de la ficha, así que la pantalla las pide
+cuando las muestra y no las arrastra en cada consulta del interno.
+
+```
+GET /api/internos/7/notas
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "ok": true,
+  "notas": [
+    {
+      "id": 2,
+      "interno_id": 7,
+      "texto": "Cambió de habitación",
+      "creado_en": "2026-11-03 23:14:51",
+      "escrita_por": "Administrador de prueba",
+      "modificado_en": null,
+      "modificada_por": null
+    }
+  ]
+}
+```
+
+Vienen de la más nueva a la más vieja. `escrita_por` y `modificada_por` son el nombre del
+usuario, no el id, para que la pantalla los muestre sin pedir nada más.
+
+```
+POST /api/internos/7/notas
+Authorization: Bearer <token>
+
+{ "texto": "Pidió llamar a la hermana los domingos" }
+```
+
+Responde 201 con la nota. El texto es obligatorio y no puede superar los 1000 caracteres.
+`PUT /api/internos/7/notas/2` cambia el texto y deja registrado quién y cuándo;
+`DELETE /api/internos/7/notas/2` la borra y responde 204.
+
+Las tres operaciones quedan en la auditoría con entidad `notas`, y la baja guarda el texto
+que se borró, así que nada se pierde del todo.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id del interno o el de la nota no es un entero mayor a cero |
+| 400 `DATOS_INCOMPLETOS` | falta el texto |
+| 400 `TEXTO_INVALIDO` | el texto supera los 1000 caracteres |
+| 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
+| 404 `NOTA_NO_ENCONTRADA` | la nota no existe o es de otro interno |
+
+Para una base ya creada hay que correr una vez `db/migracion_notas.sql`.
+
 ### Parámetros de cobranza (BS-13)
 
 ```
@@ -967,6 +1033,70 @@ agrega a `egresos` el `estado` y las columnas de la anulación y de la edición.
 | 409 `EGRESO_ANULADO` | se quiso editar un egreso anulado |
 | 409 `EGRESO_YA_ANULADO` | se quiso anular un egreso que ya estaba anulado |
 
+### Ingresos institucionales
+
+La plata que entra y **no es una cuota**: donaciones, subsidios, rifas, lo que sea que no
+esté atado a un interno. Es el espejo de los egresos y funciona igual.
+
+```
+POST /api/ingresos
+Authorization: Bearer <token>
+
+{
+  "concepto": "Donación de la parroquia",
+  "categoria": "donaciones",
+  "monto": 50000,
+  "medio_pago_id": 1,
+  "fecha": "2026-11-02",
+  "comprobante": "REC-0001",
+  "observaciones": "Colecta de octubre"
+}
+```
+
+`fecha`, `comprobante` y `observaciones` son opcionales; sin fecha se usa la del día y no
+puede ser futura. La categoría se guarda en minúsculas para que no se dupliquen en los
+totales (`Donaciones` y `donaciones` son la misma).
+
+```
+GET /api/ingresos?anio=2026&mes=11&categoria=donaciones&pagina=1&por_pagina=20
+Authorization: Bearer <token>
+```
+
+`anio` y `mes` son obligatorios. La respuesta trae el `resumen` del período —cantidad,
+total, cuántos se anularon y el desglose por categoría de mayor a menor—, el listado del más
+nuevo al más viejo y la paginación. El resumen es de todo el período y **no** aplica el
+filtro de categoría, igual que en los egresos.
+
+**Un ingreso no se borra, se anula.**
+
+```
+POST /api/ingresos/12/anular
+Authorization: Bearer <token>
+
+{ "motivo": "Se cargó dos veces" }
+```
+
+Queda con `estado: anulado`, el motivo, quién lo anuló y cuándo. Sigue en el listado pero
+deja de sumar en el resumen.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el concepto, la categoría, el monto, el medio de pago o el motivo de la anulación |
+| 400 `MONTO_INVALIDO` | el monto no es un número mayor a cero |
+| 400 `MEDIO_PAGO_INEXISTENTE` | el `medio_pago_id` no está en el catálogo |
+| 400 `FECHA_INVALIDA` | la fecha no es AAAA-MM-DD o es futura |
+| 400 `PERIODO_INVALIDO` | `anio` o `mes` fuera de rango |
+| 404 `INGRESO_NO_ENCONTRADO` | no hay un ingreso con ese id |
+| 409 `INGRESO_YA_ANULADO` | ya estaba anulado |
+
+El alta y la anulación quedan en la auditoría con entidad `ingresos`.
+
+Para una base ya creada hay que correr una vez `db/migracion_ingresos.sql`.
+
+**Ojo con el balance:** el reporte RP-01 compara lo cobrado de las **cuotas** contra los
+egresos; estos ingresos todavía no entran ahí. Si la Dirección los quiere sumados al
+balance, es una decisión a tomar y un cambio aparte en ese reporte.
+
 ### Interés por mora (BS-11)
 
 El interés se calcula solo, sin que nadie tenga que cargarlo a mano:
@@ -1117,7 +1247,7 @@ del mes, once meses atrás, hasta hoy).
 | Campo | Qué es |
 |-------|--------|
 | `tarjetas` | Los números grandes de arriba |
-| `serie` | El gráfico: `etiquetas` son los meses del rango (van todos, también los que no tuvieron movimiento) y cada línea trae un valor por mes, en el mismo orden |
+| `serie` | El gráfico: cada línea trae un valor por etiqueta, en el mismo orden. En casi todos los reportes las `etiquetas` son los meses del rango (van todos, también los que no tuvieron movimiento); en la deuda detallada son los tramos de antigüedad |
 | `indicadores` | Los porcentajes y conteos que acompañan al gráfico |
 | `detalle` | La tabla, con `columnas` y `filas`. Es `null` en los reportes que no listan registros |
 | `formato` | `moneda`, `porcentaje`, `numero` o `texto`. Le dice al front cómo mostrar el valor sin tener que conocer cada reporte |
@@ -1252,6 +1382,56 @@ cuentan como `otro`.
 | Tarjetas | `recuperados` (altas terapéuticas) y `abandonos` como números, y `tasa_recuperacion`: las altas terapéuticas sobre el total de egresos, en porcentaje |
 | Gráfico | una línea por tipo (`alta_terapeutica`, `abandono`, `derivacion`, `otro`) con la cantidad de egresos de cada mes |
 | Indicadores | `egresos` (el total, como número), `porcentaje_<tipo>` para cada tipo y `dias_promedio_estadia`: el promedio de días entre `fecha_ingreso` y `fecha_egreso` de esos legajos (los que no tienen fecha de ingreso no entran) |
+
+### Deuda detallada (RP-08)
+
+```
+GET /api/reportes/deuda?desde=2026-01-01&hasta=2026-11-03
+Authorization: Bearer <token>
+```
+
+Quiénes deben y cuánto. Toma las cuotas **ya vencidas** que todavía tienen saldo y no están
+anuladas, agrupadas por interno, de la que más debe a la que menos.
+
+Que sean solo las vencidas es a propósito: la deuda es lo exigible. Una cuota del mes que
+todavía no venció no es deuda, y además nunca entraría, porque el rango por defecto termina
+hoy.
+
+```json
+{
+  "tarjetas": [
+    { "clave": "total_adeudado",     "etiqueta": "Total adeudado",     "valor": 230000, "formato": "moneda" },
+    { "clave": "internos_con_deuda", "etiqueta": "Internos con deuda", "valor": 2,      "formato": "numero" },
+    { "clave": "cuotas_vencidas",    "etiqueta": "Cuotas vencidas",    "valor": 5,      "formato": "numero" }
+  ],
+  "serie": {
+    "etiquetas": ["Hasta 30 días", "31 a 60 días", "61 a 90 días", "Más de 90 días"],
+    "lineas": [ { "clave": "saldo", "etiqueta": "Saldo adeudado", "valores": [100000, 80000, 50000, 0] } ]
+  },
+  "detalle": {
+    "columnas": [
+      { "clave": "legajo", "etiqueta": "Legajo", "formato": "texto" },
+      { "clave": "saldo",  "etiqueta": "Saldo",  "formato": "moneda" }
+    ],
+    "filas": [
+      {
+        "legajo": "LEG-20260801-0002",
+        "interno": "Gomez, Ana",
+        "dni": "40999888",
+        "cuotas": 3,
+        "periodos": "2026-08, 2026-09, 2026-10",
+        "saldo": 150000,
+        "antiguedad_dias": 85,
+        "ultimo_pago": null
+      }
+    ]
+  }
+}
+```
+
+El gráfico es la deuda por antigüedad, en tramos, en vez de por mes. `antiguedad_dias` se
+cuenta desde el vencimiento de la cuota impaga más vieja del interno, y `ultimo_pago` es el
+último pago que hizo, sea de la cuota que sea (`null` si nunca pagó).
 
 ### Cómo se agrega un reporte
 

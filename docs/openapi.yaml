@@ -362,6 +362,104 @@ paths:
         '404': { $ref: '#/components/responses/InternoNoEncontrado' }
         '409': { $ref: '#/components/responses/DniDuplicado' }
 
+  /internos/{id}/notas:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+    get:
+      tags: [Internos]
+      summary: Notas del interno
+      description: |
+        Observaciones libres que no entran en los campos de la ficha. Van de la más nueva a
+        la más vieja, y aparte de la ficha: la pantalla las pide cuando las muestra.
+      responses:
+        '200':
+          description: Las notas del interno
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  notas:
+                    type: array
+                    items: { $ref: '#/components/schemas/Nota' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+    post:
+      tags: [Internos]
+      summary: Agregar una nota
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotaNueva' }
+      responses:
+        '201':
+          description: Nota agregada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  nota: { $ref: '#/components/schemas/Nota' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` o `TEXTO_INVALIDO` (más de 1000 caracteres)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/InternoNoEncontrado' }
+
+  /internos/{id}/notas/{notaId}:
+    parameters:
+      - $ref: '#/components/parameters/IdInterno'
+      - name: notaId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, example: 2 }
+    put:
+      tags: [Internos]
+      summary: Editar el texto de una nota
+      description: Deja registrado quién la modificó y cuándo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotaNueva' }
+      responses:
+        '200':
+          description: Nota actualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  nota: { $ref: '#/components/schemas/Nota' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` o `TEXTO_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NotaNoEncontrada' }
+    delete:
+      tags: [Internos]
+      summary: Borrar una nota
+      description: La baja queda en la auditoría con el texto que tenía.
+      responses:
+        '204':
+          description: Borrada (sin cuerpo)
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/NotaNoEncontrada' }
+
   /internos/{id}/reingreso:
     parameters:
       - $ref: '#/components/parameters/IdInterno'
@@ -906,6 +1004,156 @@ paths:
         '404': { $ref: '#/components/responses/EgresoNoEncontrado' }
         '409':
           description: '`EGRESO_ANULADO`: el egreso está anulado y no se puede editar'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /ingresos:
+    get:
+      tags: [Cobranzas]
+      summary: Ingresos del período que no son cuotas
+      description: |
+        Donaciones, subsidios, rifas: la plata que entra y no está atada a un interno. Es el
+        espejo de los egresos.
+
+        El `resumen` es de todo el período y **no** aplica el filtro de categoría. Ordena del
+        ingreso más reciente al más viejo. Los anulados siguen en el listado pero no suman.
+      parameters:
+        - { name: anio, in: query, required: true, schema: { type: integer, minimum: 2020, maximum: 2100 }, example: 2026 }
+        - { name: mes, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 12 }, example: 11 }
+        - name: categoria
+          in: query
+          required: false
+          description: No distingue mayúsculas.
+          schema: { type: string }
+          example: donaciones
+        - { name: pagina, in: query, required: false, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: por_pagina, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Ingresos del período, con el resumen y la paginación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  periodo:
+                    type: object
+                    properties:
+                      anio: { type: integer, example: 2026 }
+                      mes: { type: integer, example: 11 }
+                  resumen: { $ref: '#/components/schemas/ResumenIngresos' }
+                  ingresos:
+                    type: array
+                    items: { $ref: '#/components/schemas/Ingreso' }
+                  paginacion: { $ref: '#/components/schemas/Paginacion' }
+        '400':
+          description: '`DATOS_INCOMPLETOS`, `PERIODO_INVALIDO` o `PAGINACION_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+    post:
+      tags: [Cobranzas]
+      summary: Registro de un ingreso institucional
+      description: |
+        La fecha es opcional: si no viene se usa la del día, y no puede ser futura. La
+        categoría se guarda en minúsculas para que no se dupliquen en los totales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IngresoNuevo' }
+      responses:
+        '201':
+          description: Ingreso registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  ingreso: { $ref: '#/components/schemas/Ingreso' }
+        '400':
+          description: |
+            `DATOS_INCOMPLETOS`, `MONTO_INVALIDO`, `MEDIO_PAGO_INEXISTENTE`, `FECHA_INVALIDA`,
+            `CONCEPTO_INVALIDO`, `CATEGORIA_INVALIDA`, `COMPROBANTE_INVALIDO` u `OBSERVACIONES_INVALIDAS`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /ingresos/categorias:
+    get:
+      tags: [Cobranzas]
+      summary: Categorías de ingresos ya usadas
+      description: Para ofrecerlas en el formulario sin obligar a escribirlas de nuevo.
+      responses:
+        '200':
+          description: Las categorías cargadas, ordenadas alfabéticamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  categorias:
+                    type: array
+                    items: { type: string }
+                    example: [donaciones, eventos, subsidios]
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  /ingresos/{id}/anular:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, example: 12 }
+    post:
+      tags: [Cobranzas]
+      summary: Anulación de un ingreso
+      description: |
+        El ingreso **no se borra**: queda con `estado: anulado`, el motivo, quién lo anuló y
+        cuándo. Sigue apareciendo en `GET /ingresos` pero deja de sumar en el resumen. El
+        `motivo` es obligatorio.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [motivo]
+              properties:
+                motivo: { type: string, maxLength: 500, example: Se cargó dos veces }
+      responses:
+        '200':
+          description: Ingreso anulado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  ingreso: { $ref: '#/components/schemas/Ingreso' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS` (falta el motivo) o `MOTIVO_INVALIDO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404':
+          description: '`INGRESO_NO_ENCONTRADO`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: '`INGRESO_YA_ANULADO`: el ingreso ya estaba anulado'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1692,6 +1940,34 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /reportes/deuda:
+    get:
+      tags: [Reportes]
+      summary: Deuda detallada (RP-08)
+      description: |
+        Quiénes deben y cuánto. Toma las cuotas ya vencidas que todavía tienen saldo y no
+        están anuladas, agrupadas por interno, de la que más debe a la que menos.
+
+        Que sean solo las vencidas es a propósito: la deuda es lo exigible, y una cuota que
+        todavía no venció tampoco entraría porque el rango por defecto termina hoy.
+
+        A diferencia del resto, el gráfico no va por mes sino por tramos de antigüedad, y el
+        `detalle` trae el listado: `legajo`, `interno`, `dni`, `cuotas`, `periodos`, `saldo`,
+        `antiguedad_dias` (desde el vencimiento de la cuota impaga más vieja) y `ultimo_pago`
+        (el último pago del interno, `null` si nunca pagó).
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------
@@ -1792,6 +2068,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     SinPermiso:
       description: '`SIN_PERMISO` (el rol no alcanza) o `MODULO_SIN_ACCESO` (el rol no tiene el módulo)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotaNoEncontrada:
+      description: '`NOTA_NO_ENCONTRADA`: la nota no existe o es de otro interno'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2123,6 +2404,57 @@ components:
         observaciones: { type: string, nullable: true, example: pago parcial }
         registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }
 
+    IngresoNuevo:
+      type: object
+      required: [concepto, categoria, monto, medio_pago_id]
+      properties:
+        concepto: { type: string, maxLength: 200, example: Donación de la parroquia }
+        categoria: { type: string, maxLength: 60, description: Se guarda en minúsculas, example: donaciones }
+        monto: { type: number, format: float, minimum: 0, example: 50000 }
+        medio_pago_id: { type: integer, description: 'Del catálogo /medios-pago', example: 1 }
+        fecha:
+          type: string
+          format: date
+          description: Por defecto la del día. No puede ser futura.
+          example: '2026-11-02'
+        comprobante: { type: string, maxLength: 100, nullable: true, example: REC-0001 }
+        observaciones: { type: string, maxLength: 500, nullable: true }
+
+    Ingreso:
+      type: object
+      properties:
+        id: { type: integer, example: 12 }
+        concepto: { type: string, example: Donación de la parroquia }
+        categoria: { type: string, example: donaciones }
+        monto: { type: number, format: float, example: 50000 }
+        fecha: { type: string, example: '2026-11-02' }
+        comprobante: { type: string, nullable: true, example: REC-0001 }
+        observaciones: { type: string, nullable: true }
+        medio_pago_id: { type: integer, example: 1 }
+        medio_pago: { type: string, example: efectivo }
+        registrado_por: { type: string, nullable: true, example: Administrador de prueba }
+        estado: { type: string, enum: [activo, anulado], example: activo }
+        motivo_anulacion: { type: string, nullable: true }
+        anulado_por: { type: string, nullable: true }
+        anulado_en: { type: string, nullable: true }
+
+    ResumenIngresos:
+      type: object
+      description: Totales de todo el período, sin aplicar el filtro de categoría. Los anulados no suman.
+      properties:
+        cantidad: { type: integer, example: 3 }
+        total: { type: number, format: float, example: 375000 }
+        anulados: { type: integer, description: Cuántos se anularon en el período (no suman), example: 1 }
+        por_categoria:
+          type: array
+          description: De mayor a menor.
+          items:
+            type: object
+            properties:
+              categoria: { type: string, example: subsidios }
+              cantidad: { type: integer, example: 1 }
+              total: { type: number, format: float, example: 300000 }
+
     EgresoNuevo:
       type: object
       required: [concepto, categoria, monto, medio_pago_id]
@@ -2335,6 +2667,26 @@ components:
           type: array
           items: { $ref: '#/components/schemas/ValorDeReporte' }
         detalle: { $ref: '#/components/schemas/DetalleDeReporte' }
+
+    Nota:
+      type: object
+      properties:
+        id: { type: integer, example: 2 }
+        interno_id: { type: integer, example: 7 }
+        texto: { type: string, example: Cambió de habitación }
+        creado_en: { type: string, example: '2026-11-03 23:14:51' }
+        escrita_por: { type: string, nullable: true, example: Administrador de prueba }
+        modificado_en: { type: string, nullable: true, example: null }
+        modificada_por: { type: string, nullable: true, example: null }
+
+    NotaNueva:
+      type: object
+      required: [texto]
+      properties:
+        texto:
+          type: string
+          maxLength: 1000
+          example: Pidió llamar a la hermana los domingos
 
     Paginacion:
       type: object

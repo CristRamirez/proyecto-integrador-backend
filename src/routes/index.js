@@ -13,6 +13,7 @@ const rutasInternos = require('./internos.routes');
 const rutasParametros = require('./parametros.routes');
 const rutasCuotas = require('./cuotas.routes');
 const rutasEgresos = require('./egresos.routes');
+const rutasIngresos = require('./ingresos.routes');
 const rutasAuditoria = require('./auditoria.routes');
 const rutasReportes = require('./reportes.routes');
 
@@ -34,6 +35,7 @@ router.use('/internos', rutasInternos);
 router.use('/parametros', rutasParametros);
 router.use('/cuotas', rutasCuotas);
 router.use('/egresos', rutasEgresos);
+router.use('/ingresos', rutasIngresos);
 router.use('/auditoria', rutasAuditoria);
 router.use('/reportes', rutasReportes);
 

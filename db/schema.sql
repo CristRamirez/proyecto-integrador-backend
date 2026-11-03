@@ -139,6 +139,22 @@ CREATE TABLE IF NOT EXISTS historial_estados (
 
 CREATE INDEX IF NOT EXISTS idx_historial_interno ON historial_estados(interno_id);
 
+-- Notas libres del interno: observaciones que no entran en los campos de la ficha.
+CREATE TABLE IF NOT EXISTS notas (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  interno_id     INTEGER NOT NULL,
+  texto          TEXT    NOT NULL,
+  usuario_id     INTEGER,                               -- quién la escribió
+  creado_en      TEXT    NOT NULL DEFAULT (datetime('now')),
+  modificado_por INTEGER,
+  modificado_en  TEXT,
+  FOREIGN KEY (interno_id)     REFERENCES internos(id),
+  FOREIGN KEY (usuario_id)     REFERENCES usuarios(id),
+  FOREIGN KEY (modificado_por) REFERENCES usuarios(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notas_interno ON notas(interno_id);
+
 -- ------------------------------------------------------------
 -- DATOS INICIALES
 -- ------------------------------------------------------------
@@ -302,6 +318,32 @@ CREATE TABLE IF NOT EXISTS egresos (
   FOREIGN KEY (usuario_id)     REFERENCES usuarios(id),
   FOREIGN KEY (anulado_por)    REFERENCES usuarios(id),
   FOREIGN KEY (modificado_por) REFERENCES usuarios(id)
+);
+
+-- ------------------------------------------------------------
+-- INGRESOS (plata que entra y no es una cuota)
+-- ------------------------------------------------------------
+
+-- Donaciones, subsidios, eventos: lo que no está atado a un interno.
+CREATE TABLE IF NOT EXISTS ingresos (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  medio_pago_id INTEGER NOT NULL,
+  concepto      TEXT    NOT NULL,
+  categoria     TEXT,                          -- origen del ingreso (donación, subsidio, etc.)
+  monto         REAL    NOT NULL,
+  fecha         TEXT    NOT NULL DEFAULT (datetime('now')),
+  comprobante   TEXT,                          -- nro de recibo
+  observaciones TEXT,
+  usuario_id    INTEGER,                       -- quién lo registró
+  creado_en     TEXT    NOT NULL DEFAULT (datetime('now')),
+  -- Un ingreso no se borra: se anula. Sigue en el listado pero no suma.
+  estado           TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'anulado')),
+  motivo_anulacion TEXT,
+  anulado_por      INTEGER,
+  anulado_en       TEXT,
+  FOREIGN KEY (medio_pago_id) REFERENCES medios_pago(id),
+  FOREIGN KEY (usuario_id)    REFERENCES usuarios(id),
+  FOREIGN KEY (anulado_por)   REFERENCES usuarios(id)
 );
 
 -- ------------------------------------------------------------

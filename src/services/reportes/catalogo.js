@@ -61,7 +61,7 @@ const CATALOGO = [
     titulo: 'Deuda detallada',
     descripcion: 'Internos con saldo pendiente, sus cuotas adeudadas y la antigüedad de la deuda.',
     endpoint: '/api/reportes/deuda',
-    disponible: false,
+    disponible: true,
   },
 ];
 

@@ -6,6 +6,7 @@ const estadoCuentaCorriente = require('../services/reportes/cuenta-corriente.ser
 const clasificacionInternos = require('../services/reportes/clasificacion.service');
 const egresosPorMedio = require('../services/reportes/egresos.service');
 const egresosDeInternos = require('../services/reportes/egresos-internos.service');
+const deudaDetallada = require('../services/reportes/deuda.service');
 
 const MESES_POR_DEFECTO = 11;
 
@@ -121,6 +122,12 @@ async function egresosInternos(req, res) {
   responder(res, 'egresos-internos', rango, await egresosDeInternos.generar(rango));
 }
 
+async function deuda(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'deuda', rango, await deudaDetallada.generar(rango));
+}
+
 module.exports = {
   leerRango,
   responder,
@@ -131,4 +138,5 @@ module.exports = {
   mediosPago,
   egresos,
   egresosInternos,
+  deuda,
 };

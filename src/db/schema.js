@@ -104,6 +104,16 @@ const contactosFamiliares = sqliteTable('contactos_familiares', {
   email: text('email'),
 });
 
+const notas = sqliteTable('notas', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  interno_id: integer('interno_id').notNull(),
+  texto: text('texto').notNull(),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+  modificado_por: integer('modificado_por'),
+  modificado_en: text('modificado_en'),
+});
+
 const historialEstados = sqliteTable('historial_estados', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   interno_id: integer('interno_id').notNull(),
@@ -201,6 +211,23 @@ const auditoria = sqliteTable('auditoria', {
   fecha: text('fecha').notNull().default(sql`(datetime('now'))`),
 });
 
+const ingresos = sqliteTable('ingresos', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  medio_pago_id: integer('medio_pago_id').notNull(),
+  concepto: text('concepto').notNull(),
+  categoria: text('categoria'),
+  monto: real('monto').notNull(),
+  fecha: text('fecha').notNull().default(sql`(datetime('now'))`),
+  comprobante: text('comprobante'),
+  observaciones: text('observaciones'),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+  estado: text('estado').notNull().default('activo'),
+  motivo_anulacion: text('motivo_anulacion'),
+  anulado_por: integer('anulado_por'),
+  anulado_en: text('anulado_en'),
+});
+
 module.exports = {
   roles,
   usuarios,
@@ -212,11 +239,13 @@ module.exports = {
   legajos,
   contactosFamiliares,
   historialEstados,
+  notas,
   estadosCuota,
   configuracionCuotas,
   cuotas,
   mediosPago,
   pagos,
   egresos,
+  ingresos,
   auditoria,
 };
