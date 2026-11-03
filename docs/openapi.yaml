@@ -1692,6 +1692,34 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /reportes/deuda:
+    get:
+      tags: [Reportes]
+      summary: Deuda detallada (RP-08)
+      description: |
+        Quiénes deben y cuánto. Toma las cuotas ya vencidas que todavía tienen saldo y no
+        están anuladas, agrupadas por interno, de la que más debe a la que menos.
+
+        Que sean solo las vencidas es a propósito: la deuda es lo exigible, y una cuota que
+        todavía no venció tampoco entraría porque el rango por defecto termina hoy.
+
+        A diferencia del resto, el gráfico no va por mes sino por tramos de antigüedad, y el
+        `detalle` trae el listado: `legajo`, `interno`, `dni`, `cuotas`, `periodos`, `saldo`,
+        `antiguedad_dias` (desde el vencimiento de la cuota impaga más vieja) y `ultimo_pago`
+        (el último pago del interno, `null` si nunca pagó).
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------

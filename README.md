@@ -142,6 +142,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/reportes`           | módulo `reportes`     | Catálogo de los reportes y cuáles ya están listos|
 | GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
 | GET    | `/api/reportes/medios-pago`| módulo `reportes`     | Lo cobrado por cada medio de pago (RP-04)       |
+| GET    | `/api/reportes/deuda`     | módulo `reportes`     | Internos con deuda vencida, con el detalle (RP-08)|
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -1117,7 +1118,7 @@ del mes, once meses atrás, hasta hoy).
 | Campo | Qué es |
 |-------|--------|
 | `tarjetas` | Los números grandes de arriba |
-| `serie` | El gráfico: `etiquetas` son los meses del rango (van todos, también los que no tuvieron movimiento) y cada línea trae un valor por mes, en el mismo orden |
+| `serie` | El gráfico: cada línea trae un valor por etiqueta, en el mismo orden. En casi todos los reportes las `etiquetas` son los meses del rango (van todos, también los que no tuvieron movimiento); en la deuda detallada son los tramos de antigüedad |
 | `indicadores` | Los porcentajes y conteos que acompañan al gráfico |
 | `detalle` | La tabla, con `columnas` y `filas`. Es `null` en los reportes que no listan registros |
 | `formato` | `moneda`, `porcentaje`, `numero` o `texto`. Le dice al front cómo mostrar el valor sin tener que conocer cada reporte |
@@ -1252,6 +1253,56 @@ cuentan como `otro`.
 | Tarjetas | `recuperados` (altas terapéuticas) y `abandonos` como números, y `tasa_recuperacion`: las altas terapéuticas sobre el total de egresos, en porcentaje |
 | Gráfico | una línea por tipo (`alta_terapeutica`, `abandono`, `derivacion`, `otro`) con la cantidad de egresos de cada mes |
 | Indicadores | `egresos` (el total, como número), `porcentaje_<tipo>` para cada tipo y `dias_promedio_estadia`: el promedio de días entre `fecha_ingreso` y `fecha_egreso` de esos legajos (los que no tienen fecha de ingreso no entran) |
+
+### Deuda detallada (RP-08)
+
+```
+GET /api/reportes/deuda?desde=2026-01-01&hasta=2026-11-03
+Authorization: Bearer <token>
+```
+
+Quiénes deben y cuánto. Toma las cuotas **ya vencidas** que todavía tienen saldo y no están
+anuladas, agrupadas por interno, de la que más debe a la que menos.
+
+Que sean solo las vencidas es a propósito: la deuda es lo exigible. Una cuota del mes que
+todavía no venció no es deuda, y además nunca entraría, porque el rango por defecto termina
+hoy.
+
+```json
+{
+  "tarjetas": [
+    { "clave": "total_adeudado",     "etiqueta": "Total adeudado",     "valor": 230000, "formato": "moneda" },
+    { "clave": "internos_con_deuda", "etiqueta": "Internos con deuda", "valor": 2,      "formato": "numero" },
+    { "clave": "cuotas_vencidas",    "etiqueta": "Cuotas vencidas",    "valor": 5,      "formato": "numero" }
+  ],
+  "serie": {
+    "etiquetas": ["Hasta 30 días", "31 a 60 días", "61 a 90 días", "Más de 90 días"],
+    "lineas": [ { "clave": "saldo", "etiqueta": "Saldo adeudado", "valores": [100000, 80000, 50000, 0] } ]
+  },
+  "detalle": {
+    "columnas": [
+      { "clave": "legajo", "etiqueta": "Legajo", "formato": "texto" },
+      { "clave": "saldo",  "etiqueta": "Saldo",  "formato": "moneda" }
+    ],
+    "filas": [
+      {
+        "legajo": "LEG-20260801-0002",
+        "interno": "Gomez, Ana",
+        "dni": "40999888",
+        "cuotas": 3,
+        "periodos": "2026-08, 2026-09, 2026-10",
+        "saldo": 150000,
+        "antiguedad_dias": 85,
+        "ultimo_pago": null
+      }
+    ]
+  }
+}
+```
+
+El gráfico es la deuda por antigüedad, en tramos, en vez de por mes. `antiguedad_dias` se
+cuenta desde el vencimiento de la cuota impaga más vieja del interno, y `ultimo_pago` es el
+último pago que hizo, sea de la cuota que sea (`null` si nunca pagó).
 
 ### Cómo se agrega un reporte
 
