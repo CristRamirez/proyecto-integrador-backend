@@ -104,6 +104,16 @@ const contactosFamiliares = sqliteTable('contactos_familiares', {
   email: text('email'),
 });
 
+const notas = sqliteTable('notas', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  interno_id: integer('interno_id').notNull(),
+  texto: text('texto').notNull(),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+  modificado_por: integer('modificado_por'),
+  modificado_en: text('modificado_en'),
+});
+
 const historialEstados = sqliteTable('historial_estados', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   interno_id: integer('interno_id').notNull(),
@@ -212,6 +222,7 @@ module.exports = {
   legajos,
   contactosFamiliares,
   historialEstados,
+  notas,
   estadosCuota,
   configuracionCuotas,
   cuotas,

@@ -25,7 +25,8 @@ que se accede por su API HTTP.
    Sobre una base que ya existía hay que correr además los archivos de migración, una sola vez
    cada uno: `db/migracion_bs1_bloqueo.sql` (bloqueo por intentos fallidos),
    `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
-   `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo). Son necesarios porque
+   `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo) y
+   `db/migracion_notas.sql` (notas libres del interno). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -123,6 +124,10 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | PUT    | `/api/internos/:id`       | módulo `internos`     | Modificación de datos del interno (BS-5)        |
 | POST   | `/api/internos/:id/baja`  | módulo `internos`     | Baja lógica del interno con motivo y fecha (BS-6)|
 | POST   | `/api/internos/:id/reingreso` | módulo `internos` | Reingreso: vuelve a activo y abre un legajo nuevo|
+| GET    | `/api/internos/:id/notas` | módulo `internos`     | Notas libres del interno, de la más nueva a la más vieja|
+| POST   | `/api/internos/:id/notas` | módulo `internos`     | Agrega una nota                                 |
+| PUT    | `/api/internos/:id/notas/:notaId` | módulo `internos` | Edita el texto de una nota               |
+| DELETE | `/api/internos/:id/notas/:notaId` | módulo `internos` | Borra una nota                           |
 | GET    | `/api/parametros`         | rol `administrador`   | Parámetros de cobranza vigentes (BS-13)         |
 | GET    | `/api/parametros/historico`| rol `administrador`   | Histórico de parámetros, del más nuevo al viejo |
 | POST   | `/api/parametros`         | rol `administrador`   | Guarda parámetros nuevos y archiva los anteriores|
@@ -643,6 +648,61 @@ actual:
     "fecha_ingreso": "2026-10-23", "fecha_egreso": null, "motivo_egreso": null }
 ]
 ```
+
+### Notas del interno
+
+Observaciones libres que no entran en los campos de la ficha: lo que pidió, lo que pasó un
+día, lo que hay que tener en cuenta. Van aparte de la ficha, así que la pantalla las pide
+cuando las muestra y no las arrastra en cada consulta del interno.
+
+```
+GET /api/internos/7/notas
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "ok": true,
+  "notas": [
+    {
+      "id": 2,
+      "interno_id": 7,
+      "texto": "Cambió de habitación",
+      "creado_en": "2026-11-03 23:14:51",
+      "escrita_por": "Administrador de prueba",
+      "modificado_en": null,
+      "modificada_por": null
+    }
+  ]
+}
+```
+
+Vienen de la más nueva a la más vieja. `escrita_por` y `modificada_por` son el nombre del
+usuario, no el id, para que la pantalla los muestre sin pedir nada más.
+
+```
+POST /api/internos/7/notas
+Authorization: Bearer <token>
+
+{ "texto": "Pidió llamar a la hermana los domingos" }
+```
+
+Responde 201 con la nota. El texto es obligatorio y no puede superar los 1000 caracteres.
+`PUT /api/internos/7/notas/2` cambia el texto y deja registrado quién y cuándo;
+`DELETE /api/internos/7/notas/2` la borra y responde 204.
+
+Las tres operaciones quedan en la auditoría con entidad `notas`, y la baja guarda el texto
+que se borró, así que nada se pierde del todo.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `ID_INVALIDO` | el id del interno o el de la nota no es un entero mayor a cero |
+| 400 `DATOS_INCOMPLETOS` | falta el texto |
+| 400 `TEXTO_INVALIDO` | el texto supera los 1000 caracteres |
+| 404 `INTERNO_NO_ENCONTRADO` | no hay un interno con ese id |
+| 404 `NOTA_NO_ENCONTRADA` | la nota no existe o es de otro interno |
+
+Para una base ya creada hay que correr una vez `db/migracion_notas.sql`.
 
 ### Parámetros de cobranza (BS-13)
 
