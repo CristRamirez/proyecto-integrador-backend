@@ -154,6 +154,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
 | GET    | `/api/reportes/medios-pago`| módulo `reportes`     | Lo cobrado por cada medio de pago (RP-04)       |
 | GET    | `/api/reportes/deuda`     | módulo `reportes`     | Internos con deuda vencida, con el detalle (RP-08)|
+| GET    | `/api/reportes/obras-sociales`| módulo `reportes` | Cobros por obra social pagadora (RP-06)       |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -1444,6 +1445,37 @@ hoy.
 El gráfico es la deuda por antigüedad, en tramos, en vez de por mes. `antiguedad_dias` se
 cuenta desde el vencimiento de la cuota impaga más vieja del interno, y `ultimo_pago` es el
 último pago que hizo, sea de la cuota que sea (`null` si nunca pagó).
+
+### Balance de obra social (RP-06)
+
+```
+GET /api/reportes/obras-sociales?desde=2026-09-01&hasta=2026-11-30
+Authorization: Bearer <token>
+```
+
+Lo cobrado con medio **obra social** en el rango, abierto por obra social pagadora. Las
+tarjetas son el total y la cantidad de pagos, el gráfico es lo cobrado por mes, y cada
+indicador es la participación de una obra social sobre ese total, de mayor a menor.
+
+Solo aparecen las que tuvieron cobros en el rango: el catálogo de obras sociales crece y
+listarlas todas en cero no le sirve a nadie. Los pagos de los otros medios no entran.
+
+```json
+{
+  "tarjetas": [
+    { "clave": "total_cobrado",  "etiqueta": "Total cobrado",     "valor": 100000, "formato": "moneda" },
+    { "clave": "cantidad_pagos", "etiqueta": "Cantidad de pagos", "valor": 3,      "formato": "numero" }
+  ],
+  "indicadores": [
+    { "clave": "participacion_pami", "etiqueta": "Participación de PAMI", "valor": 80, "formato": "porcentaje" },
+    { "clave": "participacion_ioma", "etiqueta": "Participación de IOMA", "valor": 20, "formato": "porcentaje" }
+  ]
+}
+```
+
+Sale de `pagos.obra_social_id`. Si quedara algún pago por obra social sin esa columna
+cargada —uno viejo que la migración no pudo reconocer— se agrupa aparte como
+**sin identificar**, así el total cierra igual y se ve que hay algo para revisar.
 
 ### Cómo se agrega un reporte
 

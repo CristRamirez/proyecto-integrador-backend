@@ -1968,6 +1968,31 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /reportes/obras-sociales:
+    get:
+      tags: [Reportes]
+      summary: Balance de obra social (RP-06)
+      description: |
+        Lo cobrado con medio **obra social** en el rango, abierto por obra social pagadora.
+        Las tarjetas son el total y la cantidad de pagos, el gráfico es lo cobrado por mes y
+        cada indicador es la participación de una obra social sobre el total, de mayor a
+        menor.
+
+        Solo aparecen las que tuvieron cobros en el rango. Sale de `pagos.obra_social_id`; si
+        algún pago viejo quedó sin esa columna cargada, se agrupa como "sin identificar".
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
   # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------
