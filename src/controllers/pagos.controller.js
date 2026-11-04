@@ -125,8 +125,7 @@ function leerTextoOpcional(valor, etiqueta, maximo, codigo) {
   return contenido;
 }
 
-// Cuando paga la obra social hay que decir cuál (BS-8). La tabla pagos todavía
-// no tiene columna para guardarla, así que por ahora queda en las observaciones.
+// Cuando paga la obra social hay que decir cuál (BS-8).
 async function leerObraSocialPagadora(valor) {
   if (vacio(valor)) {
     throw ApiError.solicitudInvalida(
@@ -188,16 +187,17 @@ async function registrar(req, res) {
     MAXIMO_COMPROBANTE,
     'COMPROBANTE_INVALIDO'
   );
-  let observaciones = leerTextoOpcional(
+  const observaciones = leerTextoOpcional(
     cuerpo.observaciones,
     'Las observaciones',
     MAXIMO_OBSERVACIONES,
     'OBSERVACIONES_INVALIDAS'
   );
 
+  let obraSocialId = null;
+
   if (medio.nombre === MEDIO_OBRA_SOCIAL) {
-    const obraSocial = await leerObraSocialPagadora(cuerpo.obra_social_id);
-    observaciones = [`Obra social pagadora: ${obraSocial.nombre}`, observaciones].filter(Boolean).join(' - ');
+    obraSocialId = (await leerObraSocialPagadora(cuerpo.obra_social_id)).id;
   }
 
   // Una cuota en mora sigue vencida hasta que se cancela del todo.
@@ -216,6 +216,7 @@ async function registrar(req, res) {
   const pagoId = await pagos.crear({
     cuotaId: id,
     medioPagoId: medio.id,
+    obraSocialId,
     monto,
     fechaPago,
     numeroComprobante,
@@ -229,6 +230,7 @@ async function registrar(req, res) {
     interno_id: cuota.interno_id,
     monto,
     medio_pago: medio.nombre,
+    ...(obraSocialId ? { obra_social_id: obraSocialId } : {}),
     saldo_restante: Math.max(saldoNuevo, 0),
     ...(sinMora ? { mora_quitada: cuota.interes_aplicado } : {}),
   });

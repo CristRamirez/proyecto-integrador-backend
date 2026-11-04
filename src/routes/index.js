@@ -16,6 +16,7 @@ const rutasEgresos = require('./egresos.routes');
 const rutasIngresos = require('./ingresos.routes');
 const rutasAuditoria = require('./auditoria.routes');
 const rutasReportes = require('./reportes.routes');
+const rutasClaves = require('./claves.routes');
 
 // Router raiz de la API: aca se monta cada grupo de rutas con su prefijo. Cuando se
 // sumen los modulos del sistema (internos, cobranzas, reportes) se agregan en esta
@@ -38,5 +39,6 @@ router.use('/egresos', rutasEgresos);
 router.use('/ingresos', rutasIngresos);
 router.use('/auditoria', rutasAuditoria);
 router.use('/reportes', rutasReportes);
+router.use('/claves', rutasClaves);
 
 module.exports = router;

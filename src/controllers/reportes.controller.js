@@ -7,6 +7,7 @@ const clasificacionInternos = require('../services/reportes/clasificacion.servic
 const egresosPorMedio = require('../services/reportes/egresos.service');
 const egresosDeInternos = require('../services/reportes/egresos-internos.service');
 const deudaDetallada = require('../services/reportes/deuda.service');
+const balanceObraSocial = require('../services/reportes/obras-sociales.service');
 
 const MESES_POR_DEFECTO = 11;
 
@@ -128,6 +129,12 @@ async function deuda(req, res) {
   responder(res, 'deuda', rango, await deudaDetallada.generar(rango));
 }
 
+async function obrasSociales(req, res) {
+  const rango = leerRango(req.query);
+
+  responder(res, 'obras-sociales', rango, await balanceObraSocial.generar(rango));
+}
+
 module.exports = {
   leerRango,
   responder,
@@ -139,4 +146,5 @@ module.exports = {
   egresos,
   egresosInternos,
   deuda,
+  obrasSociales,
 };

@@ -170,6 +170,7 @@ const pagos = sqliteTable('pagos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   cuota_id: integer('cuota_id').notNull(),
   medio_pago_id: integer('medio_pago_id').notNull(),
+  obra_social_id: integer('obra_social_id'),
   monto: real('monto').notNull(),
   fecha_pago: text('fecha_pago').notNull().default(sql`(datetime('now'))`),
   numero_comprobante: text('numero_comprobante'),
@@ -228,6 +229,18 @@ const ingresos = sqliteTable('ingresos', {
   anulado_en: text('anulado_en'),
 });
 
+const clavesIntegracion = sqliteTable('claves_integracion', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  servicio: text('servicio').notNull(),
+  descripcion: text('descripcion'),
+  valor: text('valor').notNull(),
+  activo: integer('activo').notNull().default(1),
+  usuario_id: integer('usuario_id'),
+  creado_en: text('creado_en').notNull().default(sql`(datetime('now'))`),
+  modificado_por: integer('modificado_por'),
+  modificado_en: text('modificado_en'),
+});
+
 module.exports = {
   roles,
   usuarios,
@@ -248,4 +261,5 @@ module.exports = {
   egresos,
   ingresos,
   auditoria,
+  clavesIntegracion,
 };

@@ -27,7 +27,9 @@ que se accede por su API HTTP.
    `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
    `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo) y
    `db/migracion_notas.sql` (notas libres del interno) y
-   `db/migracion_ingresos.sql` (ingresos que no son cuotas). Son necesarios porque
+   `db/migracion_ingresos.sql` (ingresos que no son cuotas) y
+   `db/migracion_pagos_obra_social.sql` (obra social pagadora en el pago) y
+   `db/migracion_claves.sql` (claves de integración). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -116,6 +118,12 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | PUT    | `/api/usuarios/:id/password` | rol `administrador` | Reinicia la contraseña                          |
 | PUT    | `/api/usuarios/:id/estado` | rol `administrador`  | Baja y alta lógica del usuario                  |
 | POST   | `/api/usuarios/:id/desbloquear` | rol `administrador` | Saca el bloqueo por intentos fallidos      |
+| GET    | `/api/claves`             | rol `administrador`   | Claves de integración, sin el valor             |
+| GET    | `/api/claves/:id`         | rol `administrador`   | Una clave                                       |
+| POST   | `/api/claves`             | rol `administrador`   | Carga una clave                                 |
+| PUT    | `/api/claves/:id`         | rol `administrador`   | Cambia el servicio, la descripción o la clave   |
+| PUT    | `/api/claves/:id/estado`  | rol `administrador`   | Activa o desactiva la clave                     |
+| DELETE | `/api/claves/:id`         | rol `administrador`   | Borra la clave                                  |
 | GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
 | GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
 | GET    | `/api/internos`           | módulo `internos`     | Padrón: búsqueda, filtros y paginación (BS-3)   |
@@ -153,6 +161,7 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | GET    | `/api/reportes/balance`   | módulo `reportes`     | Balance general: ingresos contra egresos (RP-01)|
 | GET    | `/api/reportes/medios-pago`| módulo `reportes`     | Lo cobrado por cada medio de pago (RP-04)       |
 | GET    | `/api/reportes/deuda`     | módulo `reportes`     | Internos con deuda vencida, con el detalle (RP-08)|
+| GET    | `/api/reportes/obras-sociales`| módulo `reportes` | Cobros por obra social pagadora (RP-06)       |
 
 Las rutas de `/api/ejemplo` son solo de muestra: quedan como molde de los tres casos
 (abierta, con token y con rol) y se borran cuando estén los módulos reales.
@@ -348,6 +357,63 @@ cero y `bloqueado_hasta` en `null`.
 **El token no se entera de estos cambios.** Lleva adentro el rol y dura 2 horas, así que a
 quien le cambien el rol o lo deshabiliten con la sesión abierta sigue entrando con los
 permisos viejos hasta que el token se venza y tenga que loguearse de nuevo.
+
+### Claves de integración
+
+Las claves con las que el sistema se conecta a otros servicios. Todo el grupo pide rol
+`administrador`, como el resto de la configuración.
+
+**El valor de la clave no sale nunca de la base.** Ninguna respuesta lo devuelve: el listado
+muestra `termina_en`, los últimos cuatro caracteres, que alcanzan para reconocer cuál es sin
+exponerla. Tampoco aparece en la auditoría.
+
+```
+POST /api/claves
+Authorization: Bearer <token>
+
+{
+  "servicio": "whatsapp",
+  "descripcion": "Envío de recordatorios de cuota",
+  "valor": "sk_live_9f3a7c21b4e6d8a0"
+}
+```
+
+```json
+{
+  "ok": true,
+  "clave": {
+    "id": 1,
+    "servicio": "whatsapp",
+    "descripcion": "Envío de recordatorios de cuota",
+    "termina_en": "d8a0",
+    "activo": 1,
+    "creado_en": "2026-11-04 01:10:46",
+    "cargada_por": "Administrador de prueba",
+    "modificado_en": null,
+    "modificada_por": null
+  }
+}
+```
+
+El servicio se guarda en minúsculas y no se repite: una clave por servicio. En el `PUT` el
+`valor` es opcional, así se puede corregir la descripción sin volver a escribir la clave; si
+viene, la reemplaza (es la forma de rotarla). `PUT /api/claves/:id/estado` con
+`{ "activo": false }` la desactiva sin borrarla, y el `DELETE` la borra del todo.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el servicio o la clave |
+| 400 `SERVICIO_INVALIDO` | el servicio supera los 60 caracteres |
+| 400 `DESCRIPCION_INVALIDA` | la descripción supera los 200 caracteres |
+| 400 `CLAVE_INVALIDA` | la clave no tiene entre 8 y 500 caracteres |
+| 400 `DATOS_INVALIDOS` | `activo` no es `true` ni `false` |
+| 404 `CLAVE_NO_ENCONTRADA` | no hay una clave con ese id |
+| 409 `SERVICIO_DUPLICADO` | ya hay una clave cargada para ese servicio |
+
+El alta, la modificación, el cambio de estado y el borrado quedan en la auditoría con entidad
+`claves_integracion`, siempre sin el valor.
+
+Para una base ya creada hay que correr una vez `db/migracion_claves.sql`.
 
 ### Alta de interno (BS-2)
 
@@ -800,8 +866,19 @@ Authorization: Bearer <token>
 `medio_pago_id` y `monto` son obligatorios; el resto es opcional. Si no viene la fecha, el pago
 queda con la de hoy, y no puede ser futura. Los medios de pago son los de la tabla `medios_pago`:
 efectivo, transferencia, débito, cheque y obra social. Cuando el medio es **obra social** hay
-que mandar también `obra_social_id` con la obra social que paga; como la tabla `pagos` todavía
-no tiene columna para eso, se guarda al principio de las observaciones.
+que mandar también `obra_social_id` con la obra social que paga, que se guarda en la columna
+`pagos.obra_social_id`. Cada pago vuelve con `obra_social`, el nombre para mostrar, o `null`
+si pagó cualquier otro medio.
+
+Antes eso se escribía al principio de las observaciones, porque la tabla no tenía la columna.
+`db/migracion_pagos_obra_social.sql` crea la columna y además completa los pagos ya cargados
+leyendo ese texto: deja la obra social en su lugar y le devuelve a `observaciones` lo que
+hubiera escrito el usuario. Los que no se puedan reconocer quedan como estaban, para revisarlos
+a mano:
+
+```sql
+SELECT id, observaciones FROM pagos WHERE observaciones LIKE 'Obra social pagadora:%';
+```
 
 Al guardar el pago se descuenta del saldo de la cuota y se recalcula su estado: si el saldo
 queda en cero pasa a `pagada`, si no a `parcial` (o sigue `vencida` si está en mora).
@@ -1432,6 +1509,37 @@ hoy.
 El gráfico es la deuda por antigüedad, en tramos, en vez de por mes. `antiguedad_dias` se
 cuenta desde el vencimiento de la cuota impaga más vieja del interno, y `ultimo_pago` es el
 último pago que hizo, sea de la cuota que sea (`null` si nunca pagó).
+
+### Balance de obra social (RP-06)
+
+```
+GET /api/reportes/obras-sociales?desde=2026-09-01&hasta=2026-11-30
+Authorization: Bearer <token>
+```
+
+Lo cobrado con medio **obra social** en el rango, abierto por obra social pagadora. Las
+tarjetas son el total y la cantidad de pagos, el gráfico es lo cobrado por mes, y cada
+indicador es la participación de una obra social sobre ese total, de mayor a menor.
+
+Solo aparecen las que tuvieron cobros en el rango: el catálogo de obras sociales crece y
+listarlas todas en cero no le sirve a nadie. Los pagos de los otros medios no entran.
+
+```json
+{
+  "tarjetas": [
+    { "clave": "total_cobrado",  "etiqueta": "Total cobrado",     "valor": 100000, "formato": "moneda" },
+    { "clave": "cantidad_pagos", "etiqueta": "Cantidad de pagos", "valor": 3,      "formato": "numero" }
+  ],
+  "indicadores": [
+    { "clave": "participacion_pami", "etiqueta": "Participación de PAMI", "valor": 80, "formato": "porcentaje" },
+    { "clave": "participacion_ioma", "etiqueta": "Participación de IOMA", "valor": 20, "formato": "porcentaje" }
+  ]
+}
+```
+
+Sale de `pagos.obra_social_id`. Si quedara algún pago por obra social sin esa columna
+cargada —uno viejo que la migración no pudo reconocer— se agrupa aparte como
+**sin identificar**, así el total cierra igual y se ve que hay algo para revisar.
 
 ### Cómo se agrega un reporte
 

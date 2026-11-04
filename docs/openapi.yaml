@@ -38,6 +38,8 @@ tags:
     description: Registro de altas, modificaciones y bajas (solo rol administrador)
   - name: Reportes
     description: Los ocho reportes del catálogo, todos con la misma forma de respuesta
+  - name: Claves
+    description: Claves de integración con otros servicios (solo rol administrador)
   - name: Ejemplo
     description: Rutas de muestra, no son parte del sistema
 
@@ -821,9 +823,9 @@ paths:
         todavía no tenía el interés, se le aplica antes de descontar el pago; si es en término y
         la cuota ya tenía la mora, se le quita.
 
-        Si el medio de pago es **obra social**, `obra_social_id` es obligatorio. Mientras la
-        tabla de pagos no tenga columna propia, la obra social queda escrita al principio de
-        las observaciones.
+        Si el medio de pago es **obra social**, `obra_social_id` es obligatorio y se guarda
+        en su propia columna. Cada pago vuelve con `obra_social`, el nombre para mostrar, o
+        `null` si pagó cualquier otro medio.
 
         Si no viene `fecha_pago` se toma la de hoy. No puede ser futura.
       requestBody:
@@ -1968,6 +1970,163 @@ paths:
         '401': { $ref: '#/components/responses/NoAutenticado' }
         '403': { $ref: '#/components/responses/SinPermiso' }
 
+  /reportes/obras-sociales:
+    get:
+      tags: [Reportes]
+      summary: Balance de obra social (RP-06)
+      description: |
+        Lo cobrado con medio **obra social** en el rango, abierto por obra social pagadora.
+        Las tarjetas son el total y la cantidad de pagos, el gráfico es lo cobrado por mes y
+        cada indicador es la participación de una obra social sobre el total, de mayor a
+        menor.
+
+        Solo aparecen las que tuvieron cobros en el rango. Sale de `pagos.obra_social_id`; si
+        algún pago viejo quedó sin esa columna cargada, se agrupa como "sin identificar".
+      parameters:
+        - $ref: '#/components/parameters/RangoDesde'
+        - $ref: '#/components/parameters/RangoHasta'
+      responses:
+        '200':
+          description: El reporte del rango pedido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reporte' }
+        '400': { $ref: '#/components/responses/RangoInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+
+  # ------------------------------------------------------------------
+  # CLAVES DE INTEGRACIÓN
+  # ------------------------------------------------------------------
+  /claves:
+    get:
+      tags: [Claves]
+      summary: Listar las claves de integración
+      description: |
+        El valor de la clave **no sale nunca**: cada una trae `termina_en`, los últimos cuatro
+        caracteres, que alcanzan para reconocerla. Ordena por servicio.
+      responses:
+        '200':
+          description: Las claves cargadas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  claves:
+                    type: array
+                    items: { $ref: '#/components/schemas/ClaveIntegracion' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+    post:
+      tags: [Claves]
+      summary: Cargar una clave
+      description: Una clave por servicio. El servicio se guarda en minúsculas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaveNueva' }
+      responses:
+        '201':
+          description: Clave cargada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaClave' }
+        '400':
+          description: '`DATOS_INCOMPLETOS`, `SERVICIO_INVALIDO`, `DESCRIPCION_INVALIDA` o `CLAVE_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '409': { $ref: '#/components/responses/ServicioDuplicado' }
+
+  /claves/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdClave'
+    get:
+      tags: [Claves]
+      summary: Una clave
+      responses:
+        '200':
+          description: La clave pedida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaClave' }
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/ClaveNoEncontrada' }
+    put:
+      tags: [Claves]
+      summary: Cambiar el servicio, la descripción o la clave
+      description: |
+        El `valor` es opcional: sin él se corrigen los datos y la clave queda como estaba; si
+        viene, la reemplaza. Es la forma de rotarla.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaveEditada' }
+      responses:
+        '200':
+          description: Clave actualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaClave' }
+        '400':
+          description: '`ID_INVALIDO`, `DATOS_INCOMPLETOS`, `SERVICIO_INVALIDO`, `DESCRIPCION_INVALIDA` o `CLAVE_INVALIDA`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/ClaveNoEncontrada' }
+        '409': { $ref: '#/components/responses/ServicioDuplicado' }
+    delete:
+      tags: [Claves]
+      summary: Borrar una clave
+      responses:
+        '204':
+          description: Borrada (sin cuerpo)
+        '400': { $ref: '#/components/responses/IdInvalido' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/ClaveNoEncontrada' }
+
+  /claves/{id}/estado:
+    parameters:
+      - $ref: '#/components/parameters/IdClave'
+    put:
+      tags: [Claves]
+      summary: Activar o desactivar una clave
+      description: Para dejar de usar una integración sin borrar la clave.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activo]
+              properties:
+                activo: { type: boolean, example: false }
+      responses:
+        '200':
+          description: Estado cambiado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RespuestaClave' }
+        '400':
+          description: '`ID_INVALIDO` o `DATOS_INVALIDOS` (activo no es true ni false)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/NoAutenticado' }
+        '403': { $ref: '#/components/responses/SinPermiso' }
+        '404': { $ref: '#/components/responses/ClaveNoEncontrada' }
+
   # ------------------------------------------------------------------
   # EJEMPLO
   # ------------------------------------------------------------------
@@ -2035,6 +2194,11 @@ components:
       in: path
       required: true
       schema: { type: integer, minimum: 1, example: 2 }
+    IdClave:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, example: 1 }
     RangoDesde:
       name: desde
       in: query
@@ -2114,6 +2278,16 @@ components:
       description: |
         `FECHA_INVALIDA`: `desde` o `hasta` no tienen el formato AAAA-MM-DD.
         `RANGO_INVALIDO`: `desde` es posterior a `hasta`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ClaveNoEncontrada:
+      description: '`CLAVE_NO_ENCONTRADA`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServicioDuplicado:
+      description: '`SERVICIO_DUPLICADO`: ya hay una clave cargada para ese servicio'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2400,6 +2574,7 @@ components:
         monto: { type: number, format: float, example: 9000 }
         fecha_pago: { type: string, example: '2026-10-20 14:05:11' }
         medio_pago: { type: string, example: efectivo }
+        obra_social: { type: string, nullable: true, description: 'Con medio obra social, cuál pagó', example: null }
         numero_comprobante: { type: string, nullable: true, example: 0001-00012345 }
         observaciones: { type: string, nullable: true, example: pago parcial }
         registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }
@@ -2687,6 +2862,50 @@ components:
           type: string
           maxLength: 1000
           example: Pidió llamar a la hermana los domingos
+
+    ClaveIntegracion:
+      type: object
+      description: El valor de la clave no se devuelve nunca.
+      properties:
+        id: { type: integer, example: 1 }
+        servicio: { type: string, example: whatsapp }
+        descripcion: { type: string, nullable: true, example: Envío de recordatorios de cuota }
+        termina_en:
+          type: string
+          description: Los últimos cuatro caracteres de la clave, para reconocerla.
+          example: d8a0
+        activo: { type: integer, enum: [0, 1], example: 1 }
+        creado_en: { type: string, example: '2026-11-04 01:10:46' }
+        cargada_por: { type: string, nullable: true, example: Administrador de prueba }
+        modificado_en: { type: string, nullable: true, example: null }
+        modificada_por: { type: string, nullable: true, example: null }
+
+    RespuestaClave:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+        clave: { $ref: '#/components/schemas/ClaveIntegracion' }
+
+    ClaveNueva:
+      type: object
+      required: [servicio, valor]
+      properties:
+        servicio: { type: string, maxLength: 60, description: Se guarda en minúsculas, example: whatsapp }
+        descripcion: { type: string, maxLength: 200, nullable: true, example: Envío de recordatorios de cuota }
+        valor: { type: string, minLength: 8, maxLength: 500, example: sk_live_9f3a7c21b4e6d8a0 }
+
+    ClaveEditada:
+      type: object
+      required: [servicio]
+      properties:
+        servicio: { type: string, maxLength: 60, example: whatsapp }
+        descripcion: { type: string, maxLength: 200, nullable: true, example: Recordatorios y avisos }
+        valor:
+          type: string
+          minLength: 8
+          maxLength: 500
+          description: Opcional. Si viene, reemplaza la clave guardada.
+          example: sk_live_0000111122223333
 
     Paginacion:
       type: object

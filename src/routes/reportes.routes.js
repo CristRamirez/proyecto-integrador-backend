@@ -16,5 +16,6 @@ router.get('/medios-pago', asyncHandler(reportes.mediosPago));
 router.get('/egresos', asyncHandler(reportes.egresos));
 router.get('/egresos-internos', asyncHandler(reportes.egresosInternos));
 router.get('/deuda', asyncHandler(reportes.deuda));
+router.get('/obras-sociales', asyncHandler(reportes.obrasSociales));
 
 module.exports = router;

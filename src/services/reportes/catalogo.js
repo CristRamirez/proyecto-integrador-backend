@@ -45,7 +45,7 @@ const CATALOGO = [
     titulo: 'Balance de obra social',
     descripcion: 'Cobros con medio obra social por obra social pagadora.',
     endpoint: '/api/reportes/obras-sociales',
-    disponible: false,
+    disponible: true,
   },
   {
     id: 'egresos-internos',
