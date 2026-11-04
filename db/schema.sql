@@ -373,6 +373,26 @@ INSERT OR IGNORE INTO descuentos (nombre, tipo, valor) VALUES
 -- (El módulo 'cobranzas' ya se carga en la sección de módulos de arriba.)
 
 -- ============================================================
+-- INTEGRACIONES
+-- ============================================================
+
+-- Claves con las que el sistema se conecta a otros servicios. El valor nunca
+-- sale por la API: el listado solo muestra con qué termina.
+CREATE TABLE IF NOT EXISTS claves_integracion (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  servicio       TEXT    NOT NULL UNIQUE,           -- con qué servicio se integra
+  descripcion    TEXT,                              -- para qué se usa
+  valor          TEXT    NOT NULL,                  -- la clave
+  activo         INTEGER NOT NULL DEFAULT 1,
+  usuario_id     INTEGER,                           -- quién la cargó
+  creado_en      TEXT    NOT NULL DEFAULT (datetime('now')),
+  modificado_por INTEGER,
+  modificado_en  TEXT,
+  FOREIGN KEY (usuario_id)     REFERENCES usuarios(id),
+  FOREIGN KEY (modificado_por) REFERENCES usuarios(id)
+);
+
+-- ============================================================
 -- AUDITORÍA (registro de acciones de los usuarios)
 -- ============================================================
 

@@ -28,7 +28,8 @@ que se accede por su API HTTP.
    `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo) y
    `db/migracion_notas.sql` (notas libres del interno) y
    `db/migracion_ingresos.sql` (ingresos que no son cuotas) y
-   `db/migracion_pagos_obra_social.sql` (obra social pagadora en el pago). Son necesarios porque
+   `db/migracion_pagos_obra_social.sql` (obra social pagadora en el pago) y
+   `db/migracion_claves.sql` (claves de integración). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -117,6 +118,12 @@ su `*.controller.js` y su `*.service.js`, y se monta el router en `src/routes/in
 | PUT    | `/api/usuarios/:id/password` | rol `administrador` | Reinicia la contraseña                          |
 | PUT    | `/api/usuarios/:id/estado` | rol `administrador`  | Baja y alta lógica del usuario                  |
 | POST   | `/api/usuarios/:id/desbloquear` | rol `administrador` | Saca el bloqueo por intentos fallidos      |
+| GET    | `/api/claves`             | rol `administrador`   | Claves de integración, sin el valor             |
+| GET    | `/api/claves/:id`         | rol `administrador`   | Una clave                                       |
+| POST   | `/api/claves`             | rol `administrador`   | Carga una clave                                 |
+| PUT    | `/api/claves/:id`         | rol `administrador`   | Cambia el servicio, la descripción o la clave   |
+| PUT    | `/api/claves/:id/estado`  | rol `administrador`   | Activa o desactiva la clave                     |
+| DELETE | `/api/claves/:id`         | rol `administrador`   | Borra la clave                                  |
 | GET    | `/api/estados`            | con token             | Catálogo de estados del interno                 |
 | GET    | `/api/obras-sociales`     | con token             | Catálogo de obras sociales                      |
 | GET    | `/api/internos`           | módulo `internos`     | Padrón: búsqueda, filtros y paginación (BS-3)   |
@@ -350,6 +357,63 @@ cero y `bloqueado_hasta` en `null`.
 **El token no se entera de estos cambios.** Lleva adentro el rol y dura 2 horas, así que a
 quien le cambien el rol o lo deshabiliten con la sesión abierta sigue entrando con los
 permisos viejos hasta que el token se venza y tenga que loguearse de nuevo.
+
+### Claves de integración
+
+Las claves con las que el sistema se conecta a otros servicios. Todo el grupo pide rol
+`administrador`, como el resto de la configuración.
+
+**El valor de la clave no sale nunca de la base.** Ninguna respuesta lo devuelve: el listado
+muestra `termina_en`, los últimos cuatro caracteres, que alcanzan para reconocer cuál es sin
+exponerla. Tampoco aparece en la auditoría.
+
+```
+POST /api/claves
+Authorization: Bearer <token>
+
+{
+  "servicio": "whatsapp",
+  "descripcion": "Envío de recordatorios de cuota",
+  "valor": "sk_live_9f3a7c21b4e6d8a0"
+}
+```
+
+```json
+{
+  "ok": true,
+  "clave": {
+    "id": 1,
+    "servicio": "whatsapp",
+    "descripcion": "Envío de recordatorios de cuota",
+    "termina_en": "d8a0",
+    "activo": 1,
+    "creado_en": "2026-11-04 01:10:46",
+    "cargada_por": "Administrador de prueba",
+    "modificado_en": null,
+    "modificada_por": null
+  }
+}
+```
+
+El servicio se guarda en minúsculas y no se repite: una clave por servicio. En el `PUT` el
+`valor` es opcional, así se puede corregir la descripción sin volver a escribir la clave; si
+viene, la reemplaza (es la forma de rotarla). `PUT /api/claves/:id/estado` con
+`{ "activo": false }` la desactiva sin borrarla, y el `DELETE` la borra del todo.
+
+| Código | Cuándo |
+|--------|--------|
+| 400 `DATOS_INCOMPLETOS` | falta el servicio o la clave |
+| 400 `SERVICIO_INVALIDO` | el servicio supera los 60 caracteres |
+| 400 `DESCRIPCION_INVALIDA` | la descripción supera los 200 caracteres |
+| 400 `CLAVE_INVALIDA` | la clave no tiene entre 8 y 500 caracteres |
+| 400 `DATOS_INVALIDOS` | `activo` no es `true` ni `false` |
+| 404 `CLAVE_NO_ENCONTRADA` | no hay una clave con ese id |
+| 409 `SERVICIO_DUPLICADO` | ya hay una clave cargada para ese servicio |
+
+El alta, la modificación, el cambio de estado y el borrado quedan en la auditoría con entidad
+`claves_integracion`, siempre sin el valor.
+
+Para una base ya creada hay que correr una vez `db/migracion_claves.sql`.
 
 ### Alta de interno (BS-2)
 
