@@ -821,9 +821,9 @@ paths:
         todavía no tenía el interés, se le aplica antes de descontar el pago; si es en término y
         la cuota ya tenía la mora, se le quita.
 
-        Si el medio de pago es **obra social**, `obra_social_id` es obligatorio. Mientras la
-        tabla de pagos no tenga columna propia, la obra social queda escrita al principio de
-        las observaciones.
+        Si el medio de pago es **obra social**, `obra_social_id` es obligatorio y se guarda
+        en su propia columna. Cada pago vuelve con `obra_social`, el nombre para mostrar, o
+        `null` si pagó cualquier otro medio.
 
         Si no viene `fecha_pago` se toma la de hoy. No puede ser futura.
       requestBody:
@@ -2400,6 +2400,7 @@ components:
         monto: { type: number, format: float, example: 9000 }
         fecha_pago: { type: string, example: '2026-10-20 14:05:11' }
         medio_pago: { type: string, example: efectivo }
+        obra_social: { type: string, nullable: true, description: 'Con medio obra social, cuál pagó', example: null }
         numero_comprobante: { type: string, nullable: true, example: 0001-00012345 }
         observaciones: { type: string, nullable: true, example: pago parcial }
         registrado_por: { type: string, nullable: true, description: Nombre de quien registró el pago, example: Administrador de prueba }

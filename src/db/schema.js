@@ -170,6 +170,7 @@ const pagos = sqliteTable('pagos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   cuota_id: integer('cuota_id').notNull(),
   medio_pago_id: integer('medio_pago_id').notNull(),
+  obra_social_id: integer('obra_social_id'),
   monto: real('monto').notNull(),
   fecha_pago: text('fecha_pago').notNull().default(sql`(datetime('now'))`),
   numero_comprobante: text('numero_comprobante'),

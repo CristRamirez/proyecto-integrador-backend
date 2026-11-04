@@ -279,6 +279,7 @@ CREATE TABLE IF NOT EXISTS pagos (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   cuota_id           INTEGER NOT NULL,         -- 1:N con cuotas (varios pagos por cuota)
   medio_pago_id      INTEGER NOT NULL,
+  obra_social_id     INTEGER,                  -- con medio obra social, cuál pagó
   monto              REAL    NOT NULL,
   fecha_pago         TEXT    NOT NULL DEFAULT (datetime('now')),
   numero_comprobante TEXT,
@@ -286,8 +287,9 @@ CREATE TABLE IF NOT EXISTS pagos (
   usuario_id         INTEGER,                  -- quién registró el pago
   creado_en          TEXT    NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (cuota_id)      REFERENCES cuotas(id),
-  FOREIGN KEY (medio_pago_id) REFERENCES medios_pago(id),
-  FOREIGN KEY (usuario_id)    REFERENCES usuarios(id)
+  FOREIGN KEY (medio_pago_id)  REFERENCES medios_pago(id),
+  FOREIGN KEY (obra_social_id) REFERENCES obras_sociales(id),
+  FOREIGN KEY (usuario_id)     REFERENCES usuarios(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_pagos_cuota ON pagos(cuota_id);

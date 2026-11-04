@@ -1,6 +1,6 @@
 const { asc, eq } = require('drizzle-orm');
 const { db } = require('../db/d1');
-const { cuotas, estadosCuota, internos, mediosPago, pagos, usuarios } = require('../db/schema');
+const { cuotas, estadosCuota, internos, mediosPago, obrasSociales, pagos, usuarios } = require('../db/schema');
 
 const COLUMNAS_CUOTA = {
   id: cuotas.id,
@@ -49,6 +49,7 @@ async function crear(datos) {
       cuota_id: datos.cuotaId,
       medio_pago_id: datos.medioPagoId,
       monto: datos.monto,
+      obra_social_id: datos.obraSocialId ?? null,
       numero_comprobante: datos.numeroComprobante ?? null,
       observaciones: datos.observaciones ?? null,
       usuario_id: datos.usuarioId ?? null,
@@ -71,6 +72,7 @@ const COLUMNAS_PAGO = {
   monto: pagos.monto,
   fecha_pago: pagos.fecha_pago,
   medio_pago: mediosPago.nombre,
+  obra_social: obrasSociales.nombre,
   numero_comprobante: pagos.numero_comprobante,
   observaciones: pagos.observaciones,
   registrado_por: usuarios.nombre_completo,
@@ -83,6 +85,7 @@ async function listarPorCuota(cuotaId) {
     .select(COLUMNAS_PAGO)
     .from(pagos)
     .innerJoin(mediosPago, eq(mediosPago.id, pagos.medio_pago_id))
+    .leftJoin(obrasSociales, eq(obrasSociales.id, pagos.obra_social_id))
     .leftJoin(usuarios, eq(usuarios.id, pagos.usuario_id))
     .where(eq(pagos.cuota_id, cuotaId))
     .orderBy(asc(pagos.fecha_pago), asc(pagos.id));
@@ -114,6 +117,7 @@ async function listarCuentaCorriente(internoId) {
     .from(pagos)
     .innerJoin(cuotas, eq(cuotas.id, pagos.cuota_id))
     .innerJoin(mediosPago, eq(mediosPago.id, pagos.medio_pago_id))
+    .leftJoin(obrasSociales, eq(obrasSociales.id, pagos.obra_social_id))
     .leftJoin(usuarios, eq(usuarios.id, pagos.usuario_id))
     .where(eq(cuotas.interno_id, internoId))
     .orderBy(asc(pagos.fecha_pago), asc(pagos.id));

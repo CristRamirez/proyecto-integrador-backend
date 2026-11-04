@@ -27,7 +27,8 @@ que se accede por su API HTTP.
    `db/migracion_reingreso.sql` (fechas de cada estadía en el legajo) y
    `db/migracion_tipo_egreso.sql` (tipo de egreso en el legajo) y
    `db/migracion_notas.sql` (notas libres del interno) y
-   `db/migracion_ingresos.sql` (ingresos que no son cuotas). Son necesarios porque
+   `db/migracion_ingresos.sql` (ingresos que no son cuotas) y
+   `db/migracion_pagos_obra_social.sql` (obra social pagadora en el pago). Son necesarios porque
    los `CREATE TABLE IF NOT EXISTS` del esquema no agregan columnas a una tabla que ya está
    creada. **Primero la migración, después el deploy**: si no, el código nuevo pide columnas
    que la base todavía no tiene.
@@ -800,8 +801,19 @@ Authorization: Bearer <token>
 `medio_pago_id` y `monto` son obligatorios; el resto es opcional. Si no viene la fecha, el pago
 queda con la de hoy, y no puede ser futura. Los medios de pago son los de la tabla `medios_pago`:
 efectivo, transferencia, débito, cheque y obra social. Cuando el medio es **obra social** hay
-que mandar también `obra_social_id` con la obra social que paga; como la tabla `pagos` todavía
-no tiene columna para eso, se guarda al principio de las observaciones.
+que mandar también `obra_social_id` con la obra social que paga, que se guarda en la columna
+`pagos.obra_social_id`. Cada pago vuelve con `obra_social`, el nombre para mostrar, o `null`
+si pagó cualquier otro medio.
+
+Antes eso se escribía al principio de las observaciones, porque la tabla no tenía la columna.
+`db/migracion_pagos_obra_social.sql` crea la columna y además completa los pagos ya cargados
+leyendo ese texto: deja la obra social en su lugar y le devuelve a `observaciones` lo que
+hubiera escrito el usuario. Los que no se puedan reconocer quedan como estaban, para revisarlos
+a mano:
+
+```sql
+SELECT id, observaciones FROM pagos WHERE observaciones LIKE 'Obra social pagadora:%';
+```
 
 Al guardar el pago se descuenta del saldo de la cuota y se recalcula su estado: si el saldo
 queda en cero pasa a `pagada`, si no a `parcial` (o sigue `vencida` si está en mora).
